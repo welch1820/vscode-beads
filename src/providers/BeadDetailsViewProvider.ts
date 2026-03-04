@@ -11,12 +11,14 @@
 import * as vscode from "vscode";
 import { BaseViewProvider } from "./BaseViewProvider";
 import { BeadsProjectManager } from "../backend/BeadsProjectManager";
-import { WebviewToExtensionMessage, issueToWebviewBead } from "../backend/types";
+import { WebviewToExtensionMessage, BeadStatus, issueToWebviewBead } from "../backend/types";
 import { Logger } from "../utils/logger";
+import { handleStartWork } from "../utils/startWork";
 
 export class BeadDetailsViewProvider extends BaseViewProvider {
   protected readonly viewType = "beadsDetails";
   private currentBeadId: string | null = null;
+  private currentBeadStatus: BeadStatus | null = null;
   private currentProjectId: string | null = null;
   private loadSequence = 0; // Tracks request order to prevent stale responses
 
@@ -105,6 +107,7 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
       const commentsArray = comments || [];
       this.log.debug(`Loaded ${commentsArray.length} comments for ${this.currentBeadId}`);
       if (issue) {
+        this.currentBeadStatus = issue.status as BeadStatus ?? null;
         // Merge comments into issue data
         const issueWithComments = {
           ...issue,
@@ -192,6 +195,14 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
             }
           }
           await client.update(updateArgs as unknown as Parameters<typeof client.update>[0]);
+
+          // Offer to start work when transitioning open → in_progress
+          if (
+            message.updates.status === "in_progress" &&
+            this.currentBeadStatus === "open"
+          ) {
+            handleStartWork(message.beadId, client, this.log);
+          }
           // Data will refresh via mutation events
         } catch (err) {
           vscode.window.showErrorMessage(`Failed to update bead: ${err}`);
