@@ -43,6 +43,7 @@ export interface Bead {
   labels?: string[];
   estimatedMinutes?: number;
   externalRef?: string;
+  bugzillaId?: number;
   createdAt?: string;
   updatedAt?: string;
   closedAt?: string;
@@ -57,9 +58,7 @@ export interface BeadsProject {
   name: string;
   rootPath: string;
   beadsDir: string;
-  dbPath?: string;
-  daemonStatus: "running" | "stopped" | "unknown";
-  daemonPid?: number;
+  status: "connected" | "disconnected" | "not_initialized";
 }
 
 export interface BeadsSummary {
@@ -89,6 +88,7 @@ export type ExtensionMessage =
   | { type: "setLoading"; loading: boolean }
   | { type: "setError"; error: string | null }
   | { type: "setSettings"; settings: WebviewSettings }
+  | { type: "setTeamMembers"; members: string[] }
   | { type: "refresh" }
   | { type: "showToast"; text: string };
 
@@ -106,8 +106,6 @@ export type WebviewMessage =
   | { type: "addComment"; beadId: string; text: string }
   | { type: "openBeadDetails"; beadId: string }
   | { type: "viewInGraph"; beadId: string }
-  | { type: "startDaemon" }
-  | { type: "stopDaemon" }
   | { type: "copyBeadId"; beadId: string }
   | { type: "openFile"; filePath: string; line?: number };
 

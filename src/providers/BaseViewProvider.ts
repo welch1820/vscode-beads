@@ -99,6 +99,13 @@ export abstract class BaseViewProvider implements vscode.WebviewViewProvider {
       },
     });
 
+    // Send team members (git contributors + bd config)
+    this.projectManager.getTeamMembers().then((members) => {
+      this.postMessage({ type: "setTeamMembers", members });
+    }).catch((err) => {
+      this.log.debug(`Failed to load team members: ${err}`);
+    });
+
     // Load view-specific data
     await this.loadData();
   }
@@ -136,15 +143,6 @@ export abstract class BaseViewProvider implements vscode.WebviewViewProvider {
       case "viewInGraph":
         // Focus the graph view and highlight the bead
         vscode.commands.executeCommand("beadsGraph.focus");
-        break;
-
-      case "startDaemon":
-        await this.projectManager.ensureDaemonRunning();
-        await this.loadData();
-        break;
-
-      case "stopDaemon":
-        await this.projectManager.stopDaemon();
         break;
 
       case "copyBeadId":
@@ -236,13 +234,10 @@ export abstract class BaseViewProvider implements vscode.WebviewViewProvider {
   }
 
   /**
-   * Handles daemon connection errors - logs and notifies ProjectManager
-   * Views show error state in UI; centralized notification handled by ProjectManager
+   * Handles connection errors - logs and shows output option
    */
   protected handleDaemonError(message: string, err: unknown): void {
     this.log.error(`${message}: ${err}`);
-    // ProjectManager handles the notification - views just update their error state
-    this.projectManager.notifyDaemonError(err);
   }
 
   /**
@@ -257,7 +252,9 @@ export abstract class BaseViewProvider implements vscode.WebviewViewProvider {
     const projects = this.projectManager.getProjects();
     this.postMessage({ type: "setProjects", projects });
 
-    this.loadData();
+    this.loadData().catch((err) => {
+      this.log.error(`Unhandled error in loadData: ${err}`);
+    });
   }
 
   /**

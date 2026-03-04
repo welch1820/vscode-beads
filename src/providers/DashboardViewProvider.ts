@@ -53,7 +53,7 @@ export class DashboardViewProvider extends BaseViewProvider {
 
     try {
       // Get all issues and compute summary
-      const issues = await client.list();
+      const issues = await client.list({ status: "all" });
       const beads = issues.map(issueToWebviewBead).filter((b): b is Bead => b !== null);
 
       // Compute summary

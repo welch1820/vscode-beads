@@ -30,7 +30,7 @@ export function ProjectSelector({
     return (
       <div className="project-selector single">
         <span className="project-name">{activeProject?.name || projects[0].name}</span>
-        <DaemonBadge status={activeProject?.daemonStatus || "unknown"} />
+        <StatusBadge status={activeProject?.status || "disconnected"} />
       </div>
     );
   }
@@ -48,22 +48,22 @@ export function ProjectSelector({
           </option>
         ))}
       </select>
-      <DaemonBadge status={activeProject?.daemonStatus || "unknown"} />
+      <StatusBadge status={activeProject?.status || "disconnected"} />
     </div>
   );
 }
 
-interface DaemonBadgeProps {
-  status: "running" | "stopped" | "unknown";
+interface StatusBadgeProps {
+  status: "connected" | "disconnected" | "not_initialized";
 }
 
-function DaemonBadge({ status }: DaemonBadgeProps): React.ReactElement {
-  const statusClass = `daemon-badge daemon-${status}`;
-  const statusText =
-    status === "running" ? "●" : status === "stopped" ? "○" : "?";
+function StatusBadge({ status }: StatusBadgeProps): React.ReactElement {
+  const cssClass = status === "connected" ? "daemon-running" : "daemon-stopped";
+  const statusClass = `daemon-badge ${cssClass}`;
+  const statusText = status === "connected" ? "●" : "○";
 
   return (
-    <span className={statusClass} title={`Daemon: ${status}`}>
+    <span className={statusClass} title={`Status: ${status}`}>
       {statusText}
     </span>
   );

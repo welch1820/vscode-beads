@@ -181,7 +181,7 @@ textarea {
 }
 
 .dropdown-trigger:hover {
-  background: var(--vscode-dropdown-listBackground);
+  background: var(--vscode-list-hoverBackground);
 }
 
 .dropdown-trigger:active {
@@ -194,7 +194,7 @@ textarea {
   left: 0;
   margin-top: 2px;
   min-width: 100%;
-  background: var(--vscode-dropdown-listBackground);
+  background: var(--vscode-dropdown-background);
   border: 1px solid var(--vscode-dropdown-border);
   border-radius: var(--border-radius);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
@@ -1732,7 +1732,31 @@ textarea {
 }
 
 .assignee-menu .dropdown-menu {
-  min-width: 120px;
+  min-width: 160px;
+}
+
+.assignee-input-row {
+  padding: 4px 6px;
+}
+
+.assignee-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 3px 6px;
+  font-size: 12px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, var(--vscode-widget-border));
+  border-radius: 2px;
+  outline: none;
+}
+
+.assignee-input:focus {
+  border-color: var(--vscode-focusBorder);
+}
+
+.assignee-input::placeholder {
+  color: var(--vscode-input-placeholderForeground);
 }
 
 .dropdown-divider {
