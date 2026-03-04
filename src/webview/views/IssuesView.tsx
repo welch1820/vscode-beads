@@ -31,6 +31,8 @@ import {
   BeadStatus,
   BeadPriority,
   BeadType,
+  DependencyGraph,
+  DependencyType,
   STATUS_LABELS,
   STATUS_COLORS,
   PRIORITY_COLORS,
@@ -47,8 +49,9 @@ import { TypeBadge } from "../common/TypeBadge";
 import { TypeIcon } from "../common/TypeIcon";
 import { LabelBadge } from "../common/LabelBadge";
 import { FilterChip } from "../common/FilterChip";
-import { Table, Kanban } from "lucide-react";
+import { Table, Kanban, Network } from "lucide-react";
 import { ErrorMessage } from "../common/ErrorMessage";
+import { GraphView } from "./GraphView";
 import { ProjectDropdown } from "../common/ProjectDropdown";
 import { Dropdown, DropdownItem } from "../common/Dropdown";
 import { Timestamp, timestampSortingFn } from "../common/Timestamp";
@@ -145,7 +148,7 @@ export function IssuesView({
   const [isResizing, setIsResizing] = useState(false);
 
   // UI state
-  const [viewMode, setViewMode] = useState<"table" | "board">("table");
+  const [viewMode, setViewMode] = useState<"table" | "board" | "graph">("table");
   const [activePreset, setActivePreset] = useState<string>("not-closed");
   const [filterBarOpen, setFilterBarOpen] = useState(true);
   const [filterMenuOpen, setFilterMenuOpen] = useState<string | null>(null);
@@ -562,6 +565,46 @@ export function IssuesView({
     return counts;
   }, [beads]);
 
+  // Build dependency graph from beads for graph view
+  const dependencyGraph = useMemo((): DependencyGraph => {
+    const nodeIds = new Set(beads.map((b) => b.id));
+    const edgeSet = new Set<string>();
+    const edges: DependencyGraph["edges"] = [];
+
+    for (const bead of beads) {
+      if (bead.dependsOn) {
+        for (const dep of bead.dependsOn) {
+          if (!nodeIds.has(dep.id)) continue;
+          const key = `${dep.id}->${bead.id}:${dep.dependencyType || "blocks"}`;
+          if (!edgeSet.has(key)) {
+            edgeSet.add(key);
+            edges.push({
+              from: dep.id,
+              to: bead.id,
+              type: (dep.dependencyType as DependencyType) || "blocks",
+            });
+          }
+        }
+      }
+      if (bead.blocks) {
+        for (const dep of bead.blocks) {
+          if (!nodeIds.has(dep.id)) continue;
+          const key = `${bead.id}->${dep.id}:${dep.dependencyType || "blocks"}`;
+          if (!edgeSet.has(key)) {
+            edgeSet.add(key);
+            edges.push({
+              from: bead.id,
+              to: dep.id,
+              type: (dep.dependencyType as DependencyType) || "blocks",
+            });
+          }
+        }
+      }
+    }
+
+    return { nodes: beads, edges };
+  }, [beads]);
+
   // Get unique assignees from facets for filter menu
   const uniqueAssignees = useMemo(() => {
     const assignees = Array.from(assigneeFacets.keys()).filter((a): a is string => typeof a === "string" && a !== "");
@@ -679,6 +722,13 @@ export function IssuesView({
             title="Board view"
           >
             <Kanban size={14} />
+          </button>
+          <button
+            className={viewMode === "graph" ? "active" : ""}
+            onClick={() => setViewMode("graph")}
+            title="Graph view"
+          >
+            <Network size={14} />
           </button>
         </div>
       </div>
@@ -1057,6 +1107,17 @@ export function IssuesView({
           onUpdateBead={onUpdateBead}
           hasActiveFilters={hasActiveFilters}
           unfilteredCounts={unfilteredStatusCounts}
+        />
+      )}
+
+      {/* Dependency Graph */}
+      {!error && viewMode === "graph" && (
+        <GraphView
+          graph={dependencyGraph}
+          loading={loading}
+          error={null}
+          highlightedBeadId={selectedBeadId}
+          onSelectBead={onSelectBead}
         />
       )}
 

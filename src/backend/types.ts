@@ -154,6 +154,7 @@ export type ExtensionToWebviewMessage =
   | { type: "setSelectedBeadId"; beadId: string | null }
   | { type: "setSummary"; summary: BeadsSummary }
   | { type: "setGraph"; graph: DependencyGraph }
+  | { type: "highlightNode"; beadId: string }
   | { type: "setProjects"; projects: BeadsProject[] }
   | { type: "setLoading"; loading: boolean }
   | { type: "setError"; error: string | null }

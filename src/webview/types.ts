@@ -76,6 +76,12 @@ export interface WebviewSettings {
   tooltipHoverDelay: number; // 0 = disabled
 }
 
+// Dependency graph data
+export interface DependencyGraph {
+  nodes: Bead[];
+  edges: { from: string; to: string; type: DependencyType }[];
+}
+
 // Messages from extension to webview
 export type ExtensionMessage =
   | { type: "setViewType"; viewType: string }
@@ -84,6 +90,8 @@ export type ExtensionMessage =
   | { type: "setBead"; bead: Bead | null }
   | { type: "setSelectedBeadId"; beadId: string | null }
   | { type: "setSummary"; summary: BeadsSummary }
+  | { type: "setGraph"; graph: DependencyGraph }
+  | { type: "highlightNode"; beadId: string }
   | { type: "setProjects"; projects: BeadsProject[] }
   | { type: "setLoading"; loading: boolean }
   | { type: "setError"; error: string | null }
