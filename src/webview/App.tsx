@@ -10,6 +10,7 @@ import {
   Bead,
   BeadsProject,
   BeadsSummary,
+  DependencyGraph,
   ExtensionMessage,
   WebviewSettings,
   vscode,
@@ -17,6 +18,7 @@ import {
 import { DashboardView } from "./views/DashboardView";
 import { IssuesView } from "./views/IssuesView";
 import { DetailsView } from "./views/DetailsView";
+import { GraphView } from "./views/GraphView";
 import { Loading } from "./common/Loading";
 import { ToastProvider, triggerToast } from "./common/Toast";
 
@@ -28,6 +30,8 @@ interface AppState {
   selectedBead: Bead | null;
   selectedBeadId: string | null;
   summary: BeadsSummary | null;
+  graph: DependencyGraph | null;
+  highlightedBeadId: string | null;
   loading: boolean;
   error: string | null;
   settings: WebviewSettings;
@@ -42,6 +46,8 @@ const initialState: AppState = {
   selectedBead: null,
   selectedBeadId: null,
   summary: null,
+  graph: null,
+  highlightedBeadId: null,
   loading: true,
   error: null,
   settings: { renderMarkdown: true, userId: "", tooltipHoverDelay: 1000 },
@@ -76,6 +82,12 @@ export function App(): React.ReactElement {
         break;
       case "setSummary":
         setState((prev) => ({ ...prev, summary: message.summary }));
+        break;
+      case "setGraph":
+        setState((prev) => ({ ...prev, graph: message.graph }));
+        break;
+      case "highlightNode":
+        setState((prev) => ({ ...prev, highlightedBeadId: message.beadId }));
         break;
       case "setLoading":
         setState((prev) => ({ ...prev, loading: message.loading }));
@@ -213,6 +225,19 @@ export function App(): React.ReactElement {
           />
         );
       }
+
+      case "beadsGraph":
+        return (
+          <GraphView
+            graph={state.graph}
+            loading={state.loading}
+            error={state.error}
+            highlightedBeadId={state.highlightedBeadId}
+            onSelectBead={(beadId) =>
+              vscode.postMessage({ type: "openBeadDetails", beadId })
+            }
+          />
+        );
 
       default:
         return (

@@ -11,6 +11,7 @@ import { BeadsProjectManager } from "./backend/BeadsProjectManager";
 import { DashboardViewProvider } from "./providers/DashboardViewProvider";
 import { BeadsPanelViewProvider } from "./providers/BeadsPanelViewProvider";
 import { BeadDetailsViewProvider } from "./providers/BeadDetailsViewProvider";
+import { GraphViewProvider } from "./providers/GraphViewProvider";
 import { createLogger, Logger } from "./utils/logger";
 
 let log: Logger;
@@ -18,6 +19,7 @@ let projectManager: BeadsProjectManager;
 let dashboardProvider: DashboardViewProvider;
 let beadsPanelProvider: BeadsPanelViewProvider;
 let detailsProvider: BeadDetailsViewProvider;
+let graphProvider: GraphViewProvider;
 let statusBar: vscode.StatusBarItem;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
@@ -57,6 +59,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     log
   );
 
+  graphProvider = new GraphViewProvider(
+    context.extensionUri,
+    projectManager,
+    log
+  );
+
   // Register webview providers
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider("beadsDashboard", dashboardProvider, {
@@ -66,6 +74,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       webviewOptions: { retainContextWhenHidden: true },
     }),
     vscode.window.registerWebviewViewProvider("beadsDetails", detailsProvider, {
+      webviewOptions: { retainContextWhenHidden: true },
+    }),
+    vscode.window.registerWebviewViewProvider("beadsGraph", graphProvider, {
       webviewOptions: { retainContextWhenHidden: true },
     })
   );
@@ -122,6 +133,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       await projectManager.refresh();
       beadsPanelProvider.refresh();
       detailsProvider.refresh();
+      graphProvider.refresh();
       log.info("Refresh complete");
       vscode.window.setStatusBarMessage("$(check) Beads: Refreshed", 2000);
     }),
@@ -170,6 +182,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         log.error(`Failed to create bead: ${err}`);
         vscode.window.showErrorMessage(`Failed to create bead: ${err}`);
       }
+    }),
+
+    vscode.commands.registerCommand("beads.viewInGraph", (beadId: string) => {
+      graphProvider.highlightBead(beadId);
     }),
 
     vscode.commands.registerCommand("beads.copyBeadId", async () => {
@@ -232,6 +248,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       dashboardProvider.refresh();
       beadsPanelProvider.refresh();
       detailsProvider.refresh();
+      graphProvider.refresh();
     }),
 
     projectManager.onActiveProjectChanged(() => {
@@ -239,6 +256,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       dashboardProvider.refresh();
       beadsPanelProvider.refresh();
       detailsProvider.refresh();
+      graphProvider.refresh();
       updateStatusBar().catch((err) => log.error(`Status bar update failed: ${err}`));
     }),
 
@@ -264,6 +282,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       dashboardProvider.refresh();
       beadsPanelProvider.refresh();
       detailsProvider.refresh();
+      graphProvider.refresh();
     })
   );
 

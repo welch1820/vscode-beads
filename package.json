@@ -63,6 +63,12 @@
           "id": "beadsDetails",
           "name": "Details",
           "visibility": "visible"
+        },
+        {
+          "type": "webview",
+          "id": "beadsGraph",
+          "name": "Graph",
+          "visibility": "hidden"
         }
       ]
     },
@@ -118,6 +124,11 @@
         {
           "command": "beads.copyBeadId",
           "when": "view == beadsDetails && beads.hasSelectedBead",
+          "group": "navigation@1"
+        },
+        {
+          "command": "beads.refresh",
+          "when": "view == beadsGraph",
           "group": "navigation@1"
         }
       ]
@@ -186,6 +197,7 @@
   },
   "dependencies": {
     "@tanstack/react-table": "^8.21.3",
+    "elkjs": "^0.11.1",
     "lucide-react": "^0.563.0",
     "marked": "^17.0.1",
     "react": "^18.2.0",
