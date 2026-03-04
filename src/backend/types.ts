@@ -55,6 +55,7 @@ export interface Bead {
   labels?: string[];
   estimatedMinutes?: number; // Time estimate
   externalRef?: string; // External reference e.g., "gh-9", "jira-ABC"
+  bugzillaId?: number; // Bugzilla bug ID (from metadata)
   createdAt?: string; // ISO/RFC3339 timestamps
   updatedAt?: string;
   closedAt?: string;
@@ -108,9 +109,7 @@ export interface BeadsProject {
   name: string; // Human-friendly label (folder name or config display name)
   rootPath: string; // Project root (VS Code workspace folder)
   beadsDir: string; // Path to .beads directory
-  dbPath?: string; // Path to beads.db (if discovered)
-  daemonStatus: "running" | "stopped" | "unknown";
-  daemonPid?: number;
+  status: "connected" | "disconnected" | "not_initialized";
 }
 
 // Result from `bd info --json`
@@ -120,16 +119,6 @@ export interface BeadsInfo {
   daemon_status?: string;
   daemon_pid?: number;
   issue_count?: number;
-  [key: string]: unknown;
-}
-
-// Result from `bd daemons list --json`
-export interface DaemonInfo {
-  pid: number;
-  database: string;
-  working_dir?: string;
-  status?: string;
-  started_at?: string;
   [key: string]: unknown;
 }
 
@@ -169,6 +158,7 @@ export type ExtensionToWebviewMessage =
   | { type: "setLoading"; loading: boolean }
   | { type: "setError"; error: string | null }
   | { type: "setSettings"; settings: WebviewSettings }
+  | { type: "setTeamMembers"; members: string[] }
   | { type: "refresh" };
 
 // Messages sent from webview to extension
@@ -186,9 +176,7 @@ export type WebviewToExtensionMessage =
   | { type: "openBeadDetails"; beadId: string }
   | { type: "viewInGraph"; beadId: string }
   | { type: "copyBeadId"; beadId: string }
-  | { type: "openFile"; filePath: string; line?: number }
-  | { type: "startDaemon" }
-  | { type: "stopDaemon" };
+  | { type: "openFile"; filePath: string; line?: number };
 
 // CLI command result
 export interface CommandResult<T = unknown> {
@@ -294,9 +282,11 @@ export function normalizeBead(raw: Record<string, unknown>): Bead | null {
     status,
     assignee: raw.assignee
       ? String(raw.assignee)
-      : raw.assigned_to
-        ? String(raw.assigned_to)
-        : undefined,
+      : raw.owner
+        ? String(raw.owner)
+        : raw.assigned_to
+          ? String(raw.assigned_to)
+          : undefined,
     labels: Array.isArray(raw.labels)
       ? raw.labels.map(String)
       : raw.tags
@@ -343,6 +333,7 @@ export function issueToWebviewBead(issue: {
   priority: number;
   issue_type: string;
   assignee?: string;
+  owner?: string;
   labels?: string[];
   estimated_minutes?: number;
   external_ref?: string;
@@ -352,6 +343,7 @@ export function issueToWebviewBead(issue: {
   dependencies?: DaemonBeadDependency[];
   dependents?: DaemonBeadDependency[];
   comments?: Array<{ id: number; author: string; text: string; created_at: string }>;
+  metadata?: Record<string, unknown>;
 }): Bead | null {
   const status = normalizeStatus(issue.status);
   if (status === null) {
@@ -367,10 +359,11 @@ export function issueToWebviewBead(issue: {
     type: issue.issue_type,
     priority: normalizePriority(issue.priority),
     status,
-    assignee: issue.assignee,
+    assignee: issue.assignee || issue.owner || undefined,
     labels: issue.labels,
     estimatedMinutes: issue.estimated_minutes,
     externalRef: issue.external_ref,
+    bugzillaId: issue.metadata?.bugzilla_id != null ? Number(issue.metadata.bugzilla_id) : undefined,
     createdAt: issue.created_at,
     updatedAt: issue.updated_at,
     closedAt: issue.closed_at,

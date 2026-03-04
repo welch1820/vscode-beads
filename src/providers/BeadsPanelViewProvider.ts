@@ -46,7 +46,7 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
     this.setError(null);
 
     try {
-      const issues = await client.list();
+      const issues = await client.list({ status: "all" });
       const beads = issues.map(issueToWebviewBead).filter((b): b is Bead => b !== null);
       this.postMessage({ type: "setBeads", beads });
     } catch (err) {
@@ -79,11 +79,21 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
         }
         break;
 
-      case "deleteBead":
-        vscode.window.showWarningMessage(
-          "Delete functionality is not yet implemented"
+      case "deleteBead": {
+        const confirm = await vscode.window.showWarningMessage(
+          `Delete bead ${message.beadId}? This cannot be undone.`,
+          { modal: true },
+          "Delete"
         );
+        if (confirm === "Delete") {
+          try {
+            await client.delete(message.beadId);
+          } catch (err) {
+            vscode.window.showErrorMessage(`Failed to delete bead: ${err}`);
+          }
+        }
         break;
+      }
     }
   }
 }

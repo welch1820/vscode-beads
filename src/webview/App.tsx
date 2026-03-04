@@ -31,6 +31,7 @@ interface AppState {
   loading: boolean;
   error: string | null;
   settings: WebviewSettings;
+  teamMembers: string[];
 }
 
 const initialState: AppState = {
@@ -44,6 +45,7 @@ const initialState: AppState = {
   loading: true,
   error: null,
   settings: { renderMarkdown: true, userId: "", tooltipHoverDelay: 1000 },
+  teamMembers: [],
 };
 
 export function App(): React.ReactElement {
@@ -83,6 +85,9 @@ export function App(): React.ReactElement {
         break;
       case "setSettings":
         setState((prev) => ({ ...prev, settings: message.settings }));
+        break;
+      case "setTeamMembers":
+        setState((prev) => ({ ...prev, teamMembers: message.members }));
         break;
       case "refresh":
         vscode.postMessage({ type: "refresh" });
@@ -128,9 +133,6 @@ export function App(): React.ReactElement {
             onSelectBead={(beadId) =>
               vscode.postMessage({ type: "openBeadDetails", beadId })
             }
-            onStartDaemon={() =>
-              vscode.postMessage({ type: "startDaemon" })
-            }
             onRetry={() =>
               vscode.postMessage({ type: "refresh" })
             }
@@ -156,9 +158,6 @@ export function App(): React.ReactElement {
             onUpdateBead={(beadId, updates) =>
               vscode.postMessage({ type: "updateBead", beadId, updates })
             }
-            onStartDaemon={() =>
-              vscode.postMessage({ type: "startDaemon" })
-            }
             onRetry={() =>
               vscode.postMessage({ type: "refresh" })
             }
@@ -176,9 +175,12 @@ export function App(): React.ReactElement {
         if (!state.selectedBead) {
           return <Loading />;
         }
-        // Extract unique assignees from beads list
+        // Merge team members (git + config) with assignees from existing beads
         const knownAssignees = Array.from(
-          new Set(state.beads.map((b) => b.assignee).filter((a): a is string => !!a))
+          new Set([
+            ...state.teamMembers,
+            ...state.beads.map((b) => b.assignee).filter((a): a is string => !!a),
+          ])
         ).sort();
         return (
           <DetailsView

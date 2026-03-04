@@ -20,7 +20,6 @@ import {
   STATUS_COLORS,
   TYPE_COLORS,
   TYPE_LABELS,
-  TYPE_SORT_ORDER,
   getTypeSortOrder,
   sortLabels,
 } from "../types";
@@ -209,6 +208,7 @@ export function DetailsView({
   const [editMode, setEditMode] = useState(false);
   const [editedBead, setEditedBead] = useState<Partial<Bead>>({});
   const [newLabel, setNewLabel] = useState("");
+  const [customAssignee, setCustomAssignee] = useState("");
   const [newDependency, setNewDependency] = useState("");
   const [newDepOptionIndex, setNewDepOptionIndex] = useState(0); // Index into DEPENDENCY_TYPE_OPTIONS
   const [newComment, setNewComment] = useState("");
@@ -410,6 +410,24 @@ export function DetailsView({
                     {a}
                   </DropdownItem>
                 ))}
+              <div className="dropdown-divider" />
+              <div className="assignee-input-row">
+                <input
+                  type="text"
+                  className="assignee-input"
+                  placeholder="Type a name…"
+                  value={customAssignee}
+                  onChange={(e) => setCustomAssignee(e.target.value)}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === "Enter" && customAssignee.trim()) {
+                      handleFieldChange("assignee", customAssignee.trim());
+                      setCustomAssignee("");
+                    }
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </div>
             </Dropdown>
             {/* Labels in edit mode - pushed to right, input first */}
             <span className="badges-spacer" />
@@ -490,6 +508,24 @@ export function DetailsView({
                     {a}
                   </DropdownItem>
                 ))}
+              <div className="dropdown-divider" />
+              <div className="assignee-input-row">
+                <input
+                  type="text"
+                  className="assignee-input"
+                  placeholder="Type a name…"
+                  value={customAssignee}
+                  onChange={(e) => setCustomAssignee(e.target.value)}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === "Enter" && customAssignee.trim()) {
+                      handleInlineUpdate("assignee", customAssignee.trim());
+                      setCustomAssignee("");
+                    }
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </div>
             </Dropdown>
             {/* Labels inline in display mode - pushed to right */}
             {displayBead.labels && displayBead.labels.length > 0 && (
@@ -522,6 +558,34 @@ export function DetailsView({
           <p className="description-text muted">No description</p>
         )}
       </div>
+
+      {/* Bugzilla ID */}
+      {(displayBead.bugzillaId || editMode) && (
+        <div className="details-section compact">
+          <h4>Bugzilla ID</h4>
+          {editMode ? (
+            <input
+              type="number"
+              value={displayBead.bugzillaId ?? ""}
+              onChange={(e) => handleFieldChange("bugzillaId", e.target.value ? parseInt(e.target.value, 10) : null)}
+              className="text-input"
+              placeholder="Bugzilla bug number"
+              min="1"
+            />
+          ) : (
+            <a
+              href={`https://bugzilla.startensystems.com/show_bug.cgi?id=${displayBead.bugzillaId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="external-link"
+              title={`Bugzilla #${displayBead.bugzillaId}`}
+            >
+              <span className="external-link-text">#{displayBead.bugzillaId}</span>
+              <Icon name="external-link" size={10} className="external-link-icon" />
+            </a>
+          )}
+        </div>
+      )}
 
       {/* External Reference */}
       {(displayBead.externalRef || editMode) && (

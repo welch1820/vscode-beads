@@ -70,7 +70,6 @@ interface IssuesViewProps {
   onSelectProject: (projectId: string) => void;
   onSelectBead: (beadId: string) => void;
   onUpdateBead: (beadId: string, updates: Partial<Bead>) => void;
-  onStartDaemon: () => void;
   onRetry: () => void;
 }
 
@@ -114,10 +113,8 @@ export function IssuesView({
   onSelectProject,
   onSelectBead,
   onUpdateBead,
-  onStartDaemon,
   onRetry,
 }: IssuesViewProps): React.ReactElement {
-  const isSocketError = error?.includes("ENOENT") || error?.includes("socket");
 
   // Persisted column state (sorting, visibility, order)
   const defaultVisibility = {
@@ -875,7 +872,6 @@ export function IssuesView({
         <ErrorMessage
           message={error}
           onRetry={onRetry}
-          onStartDaemon={isSocketError ? onStartDaemon : undefined}
         />
       )}
 

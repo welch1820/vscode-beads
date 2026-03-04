@@ -156,6 +156,7 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
             externalRef,
             acceptanceCriteria,
             estimatedMinutes,
+            bugzillaId,
             ...rest
           } = message.updates;
           const updateArgs: Record<string, unknown> = {
@@ -175,6 +176,20 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
           }
           if (estimatedMinutes !== undefined) {
             updateArgs.estimated_minutes = estimatedMinutes;
+          }
+          // Handle bugzillaId via metadata
+          if (bugzillaId !== undefined) {
+            if (typeof bugzillaId === "number") {
+              updateArgs.set_metadata = { bugzilla_id: String(bugzillaId) };
+              // Auto-populate external_ref with Bugzilla URL unless already set to something else
+              const bugzillaUrl = `https://bugzilla.startensystems.com/show_bug.cgi?id=${bugzillaId}`;
+              if (!externalRef && !rest.externalRef) {
+                updateArgs.external_ref = bugzillaUrl;
+              }
+            } else {
+              // null = clearing
+              updateArgs.unset_metadata = ["bugzilla_id"];
+            }
           }
           await client.update(updateArgs as unknown as Parameters<typeof client.update>[0]);
           // Data will refresh via mutation events
@@ -226,6 +241,23 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
           vscode.window.showErrorMessage(`Failed to add comment: ${err}`);
         }
         break;
+
+      case "deleteBead": {
+        const confirm = await vscode.window.showWarningMessage(
+          `Delete bead ${message.beadId}? This cannot be undone.`,
+          { modal: true },
+          "Delete"
+        );
+        if (confirm === "Delete") {
+          try {
+            await client.delete(message.beadId);
+            this.clearBead();
+          } catch (err) {
+            vscode.window.showErrorMessage(`Failed to delete bead: ${err}`);
+          }
+        }
+        break;
+      }
 
       case "viewInGraph":
         vscode.commands.executeCommand("beadsGraph.focus");
