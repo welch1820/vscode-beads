@@ -14,6 +14,7 @@ import { BaseViewProvider } from "./BaseViewProvider";
 import { BeadsProjectManager } from "../backend/BeadsProjectManager";
 import { WebviewToExtensionMessage, Bead, issueToWebviewBead } from "../backend/types";
 import { Logger } from "../utils/logger";
+import { handleStartWork } from "../utils/startWork";
 
 export class BeadsPanelViewProvider extends BaseViewProvider {
   protected readonly viewType = "beadsPanel";
@@ -69,10 +70,26 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
     switch (message.type) {
       case "updateBead":
         try {
+          // Check if this is an open → in_progress transition before updating
+          let wasOpen = false;
+          if (message.updates.status === "in_progress") {
+            try {
+              const oldBead = await client.show(message.beadId);
+              wasOpen = oldBead?.status === "open";
+            } catch {
+              // Non-critical — proceed with update
+            }
+          }
+
           await client.update({
             id: message.beadId,
             ...message.updates,
           });
+
+          // Offer to start work when transitioning open → in_progress
+          if (wasOpen) {
+            handleStartWork(message.beadId, client, this.log);
+          }
           // Data will refresh via mutation events
         } catch (err) {
           vscode.window.showErrorMessage(`Failed to update bead: ${err}`);
