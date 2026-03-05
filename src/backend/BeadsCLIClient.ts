@@ -73,6 +73,7 @@ export interface UpdateArgs {
   description?: string;
   status?: string;
   priority?: number;
+  issue_type?: string;
   design?: string;
   acceptance_criteria?: string;
   notes?: string;
@@ -265,7 +266,8 @@ export class BeadsCLIClient extends EventEmitter {
         try {
           resolve(JSON.parse(trimmed));
         } catch {
-          reject(new Error(`Failed to parse bd JSON output: ${trimmed.slice(0, 200)}`));
+          // Non-JSON output (e.g. from bd update/delete) — resolve with raw string
+          resolve(trimmed);
         }
       });
     });
@@ -363,6 +365,7 @@ export class BeadsCLIClient extends EventEmitter {
     if (args.title) { cmd.push(`--title=${args.title}`); }
     if (args.status) { cmd.push(`--status=${args.status}`); }
     if (args.priority !== undefined) { cmd.push(`--priority=${args.priority}`); }
+    if (args.issue_type) { cmd.push(`--type=${args.issue_type}`); }
     if (args.assignee) { cmd.push(`--assignee=${args.assignee}`); }
     if (args.description) { cmd.push(`--description=${args.description}`); }
     if (args.design) { cmd.push(`--design=${args.design}`); }

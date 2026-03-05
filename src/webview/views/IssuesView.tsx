@@ -132,6 +132,8 @@ export function IssuesView({
     setColumnVisibility,
     columnOrder,
     setColumnOrder,
+    kanbanSortOrder,
+    setKanbanSortOrder,
     resetVisibility,
   } = useColumnState({
     defaultSorting: [{ id: "updatedAt", desc: true }],
@@ -1107,6 +1109,8 @@ export function IssuesView({
           onUpdateBead={onUpdateBead}
           hasActiveFilters={hasActiveFilters}
           unfilteredCounts={unfilteredStatusCounts}
+          sortOrder={kanbanSortOrder}
+          onSortOrderChange={setKanbanSortOrder}
         />
       )}
 

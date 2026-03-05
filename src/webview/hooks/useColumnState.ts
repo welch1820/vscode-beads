@@ -15,6 +15,7 @@ interface PersistedState {
   sorting?: SortingState;
   columnVisibility?: VisibilityState;
   columnOrder?: ColumnOrderState;
+  kanbanSortOrder?: Record<string, number>;
 }
 
 interface UseColumnStateOptions {
@@ -33,6 +34,8 @@ interface UseColumnStateReturn {
   setColumnVisibility: React.Dispatch<React.SetStateAction<VisibilityState>>;
   columnOrder: ColumnOrderState;
   setColumnOrder: React.Dispatch<React.SetStateAction<ColumnOrderState>>;
+  kanbanSortOrder: Record<string, number>;
+  setKanbanSortOrder: React.Dispatch<React.SetStateAction<Record<string, number>>>;
   /** Reset visibility to defaults */
   resetVisibility: () => void;
 }
@@ -77,10 +80,14 @@ export function useColumnState(options: UseColumnStateOptions = {}): UseColumnSt
     savedState?.columnOrder ?? defaultOrder
   );
 
+  const [kanbanSortOrder, setKanbanSortOrder] = useState<Record<string, number>>(
+    savedState?.kanbanSortOrder ?? {}
+  );
+
   // Persist state changes to VS Code
   useEffect(() => {
-    vscode.setState({ sorting, columnVisibility, columnOrder });
-  }, [sorting, columnVisibility, columnOrder]);
+    vscode.setState({ sorting, columnVisibility, columnOrder, kanbanSortOrder });
+  }, [sorting, columnVisibility, columnOrder, kanbanSortOrder]);
 
   const resetVisibility = () => {
     setColumnVisibility(defaultVisibility);
@@ -93,6 +100,8 @@ export function useColumnState(options: UseColumnStateOptions = {}): UseColumnSt
     setColumnVisibility,
     columnOrder,
     setColumnOrder,
+    kanbanSortOrder,
+    setKanbanSortOrder,
     resetVisibility,
   };
 }

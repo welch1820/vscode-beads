@@ -222,6 +222,9 @@ export function App(): React.ReactElement {
             onCopyId={(beadId) =>
               vscode.postMessage({ type: "copyBeadId", beadId })
             }
+            onDeleteBead={(beadId) =>
+              vscode.postMessage({ type: "deleteBead", beadId })
+            }
           />
         );
       }
