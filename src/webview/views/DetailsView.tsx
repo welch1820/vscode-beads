@@ -2,12 +2,12 @@
  * DetailsView
  *
  * Full view/edit of a single issue with:
- * - Editable fields
+ * - Inline click-to-edit fields
  * - Dependency management
  * - Metadata display
  */
 
-import React, { useState, useCallback, useEffect } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import {
   Bead,
   BeadStatus,
@@ -177,6 +177,7 @@ interface DetailsViewProps {
   onViewInGraph: (beadId: string) => void;
   onSelectBead?: (beadId: string) => void;
   onCopyId?: (beadId: string) => void;
+  onDeleteBead?: (beadId: string) => void;
 }
 
 // Helper to render text content - markdown or plain
@@ -200,43 +201,52 @@ export function DetailsView({
   onViewInGraph: _onViewInGraph,
   onSelectBead,
   onCopyId,
+  onDeleteBead,
 }: DetailsViewProps): React.ReactElement {
   // Toast and onViewInGraph kept for potential future use
   const { showToast: _showToast } = useToast();
   void _onViewInGraph;
   void _showToast;
-  const [editMode, setEditMode] = useState(false);
   const [editedBead, setEditedBead] = useState<Partial<Bead>>({});
+  const [editingField, setEditingField] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState("");
   const [newLabel, setNewLabel] = useState("");
   const [customAssignee, setCustomAssignee] = useState("");
   const [newDependency, setNewDependency] = useState("");
   const [newDepOptionIndex, setNewDepOptionIndex] = useState(0); // Index into DEPENDENCY_TYPE_OPTIONS
   const [newComment, setNewComment] = useState("");
 
-  // Reset edit state when bead ID changes
+  // Ref to track pending edit for auto-save on bead switch
+  const pendingEditRef = useRef<{ field: string; value: string; beadId: string } | null>(null);
+
+  // Keep ref in sync with editing state
   useEffect(() => {
-    setEditMode(false);
+    if (editingField && bead) {
+      pendingEditRef.current = { field: editingField, value: editingValue, beadId: bead.id };
+    } else {
+      pendingEditRef.current = null;
+    }
+  });
+
+  // Auto-save pending edit and reset state when bead changes
+  useEffect(() => {
+    const pending = pendingEditRef.current;
+    if (pending && pending.beadId && pending.beadId !== bead?.id) {
+      onUpdateBead(pending.beadId, { [pending.field]: pending.value });
+      pendingEditRef.current = null;
+    }
+    setEditingField(null);
     setEditedBead({});
   }, [bead?.id]);
 
   // Clear pending edits when bead data updates (e.g., after save + mutation)
   useEffect(() => {
-    if (!editMode && Object.keys(editedBead).length > 0) {
+    if (!editingField && Object.keys(editedBead).length > 0) {
       setEditedBead({});
     }
   }, [bead?.updatedAt]);
 
-  const handleSave = useCallback(() => {
-    if (bead && Object.keys(editedBead).length > 0) {
-      onUpdateBead(bead.id, editedBead);
-      setEditMode(false);
-      // Don't clear editedBead here - keep showing edited values until
-      // mutation event updates the bead prop, which triggers the useEffect below
-    }
-  }, [bead, editedBead, onUpdateBead]);
-
-  // Inline update - saves immediately without entering edit mode
-  // Also optimistically updates local state for instant feedback
+  // Inline update - saves immediately, optimistically updates local state
   const handleInlineUpdate = useCallback(
     (field: keyof Bead, value: unknown) => {
       if (bead) {
@@ -247,39 +257,46 @@ export function DetailsView({
     [bead, onUpdateBead]
   );
 
-  const handleCancel = useCallback(() => {
-    setEditMode(false);
-    setEditedBead({});
+  // Start editing a text field
+  const startEditing = useCallback((field: string, value: string) => {
+    setEditingField(field);
+    setEditingValue(value);
   }, []);
 
-  const handleFieldChange = useCallback(
-    (field: keyof Bead, value: unknown) => {
-      setEditedBead((prev) => ({ ...prev, [field]: value }));
-    },
-    []
-  );
+  // Save current editing field
+  const saveEditing = useCallback(() => {
+    if (editingField) {
+      handleInlineUpdate(editingField as keyof Bead, editingValue);
+      setEditingField(null);
+    }
+  }, [editingField, editingValue, handleInlineUpdate]);
+
+  // Cancel current editing field
+  const cancelEditing = useCallback(() => {
+    setEditingField(null);
+  }, []);
 
   const handleAddLabel = useCallback(() => {
     if (newLabel.trim() && bead) {
       const currentLabels = editedBead.labels || bead.labels || [];
       if (!currentLabels.includes(newLabel.trim())) {
-        handleFieldChange("labels", [...currentLabels, newLabel.trim()]);
+        handleInlineUpdate("labels", [...currentLabels, newLabel.trim()]);
       }
       setNewLabel("");
     }
-  }, [newLabel, bead, editedBead.labels, handleFieldChange]);
+  }, [newLabel, bead, editedBead.labels, handleInlineUpdate]);
 
   const handleRemoveLabel = useCallback(
     (label: string) => {
       if (bead) {
         const currentLabels = editedBead.labels || bead.labels || [];
-        handleFieldChange(
+        handleInlineUpdate(
           "labels",
           currentLabels.filter((l) => l !== label)
         );
       }
     },
-    [bead, editedBead.labels, handleFieldChange]
+    [bead, editedBead.labels, handleInlineUpdate]
   );
 
   const handleAddDependency = useCallback(() => {
@@ -304,9 +321,25 @@ export function DetailsView({
 
   const displayBead = { ...bead, ...editedBead };
 
+  // Common key handler for editable textareas
+  const editKeyHandler = (e: React.KeyboardEvent) => {
+    if (e.key === "Escape") {
+      cancelEditing();
+    }
+  };
+
+  // Common key handler for editable single-line inputs (Enter saves)
+  const editInputKeyHandler = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      saveEditing();
+    } else if (e.key === "Escape") {
+      cancelEditing();
+    }
+  };
+
   return (
     <div className="bead-details">
-      {/* Header with icon, ID and actions */}
+      {/* Header with icon and ID */}
       <div className="details-header">
         <TypeIcon type={(displayBead.type || "task") as BeadType} size={20} />
         <span
@@ -315,7 +348,6 @@ export function DetailsView({
             if (onCopyId) {
               onCopyId(bead.id);
             } else {
-              // Fallback: copy directly without feedback
               navigator.clipboard.writeText(bead.id);
             }
           }}
@@ -323,384 +355,289 @@ export function DetailsView({
         >
           {bead.id}
         </span>
-        <div className="header-actions">
-          {editMode ? (
-            <>
-              <button
-                className="btn btn-primary btn-sm"
-                onClick={handleSave}
-                disabled={Object.keys(editedBead).length === 0}
-              >
-                Save
-              </button>
-              <button className="btn btn-sm" onClick={handleCancel}>
-                Cancel
-              </button>
-            </>
-          ) : (
-            <button className="btn btn-sm" onClick={() => setEditMode(true)}>
-              Edit
-            </button>
-          )}
-        </div>
+        <span className="header-spacer" />
+        {onDeleteBead && (
+          <button
+            className="delete-bead-btn"
+            onClick={() => onDeleteBead(bead.id)}
+            title="Delete this bead"
+          >
+            Delete
+          </button>
+        )}
       </div>
 
-      {/* Title - full width */}
+      {/* Title - click to edit */}
       <div className="details-title">
-        {editMode ? (
+        {editingField === "title" ? (
           <input
             type="text"
-            value={displayBead.title}
-            onChange={(e) => handleFieldChange("title", e.target.value)}
+            value={editingValue}
+            onChange={(e) => setEditingValue(e.target.value)}
             className="title-input"
+            autoFocus
+            onBlur={saveEditing}
+            onKeyDown={editInputKeyHandler}
           />
         ) : (
-          <h2>{displayBead.title}</h2>
+          <h2
+            className="editable-text"
+            onClick={() => startEditing("title", displayBead.title)}
+          >
+            {displayBead.title}
+          </h2>
         )}
       </div>
 
-      {/* Type/Status/Priority/Assignee chiclets + Labels */}
+      {/* Type/Status/Priority/Assignee badges + Labels */}
       <div className="details-badges">
-        {editMode ? (
-          <>
-            <ColoredSelect
-              value={(displayBead.type || "task") as BeadType}
-              options={TYPE_OPTIONS}
-              onChange={(v) => handleFieldChange("type", v)}
-            />
-            <ColoredSelect
-              value={displayBead.status}
-              options={STATUS_OPTIONS}
-              onChange={(v) => handleFieldChange("status", v)}
-            />
-            <ColoredSelect
-              value={displayBead.priority ?? 4}
-              options={PRIORITY_OPTIONS}
-              onChange={(v) => handleFieldChange("priority", v)}
-            />
-            <Dropdown
-              trigger={
-                <span className="assignee-trigger">
-                  <Icon name="user" size={10} className="person-icon" />
-                  <span className={`assignee-name ${!displayBead.assignee ? "muted" : ""}`}>
-                    {displayBead.assignee || "Unassigned"}
-                  </span>
-                </span>
-              }
-              className="assignee-menu"
-              triggerClassName="assignee-menu-trigger"
-            >
-              {userId && displayBead.assignee !== userId && (
-                <DropdownItem onClick={() => handleFieldChange("assignee", userId)}>
-                  Assign to me
-                </DropdownItem>
-              )}
-              {displayBead.assignee && (
-                <DropdownItem onClick={() => handleFieldChange("assignee", "")}>
-                  Unassign
-                </DropdownItem>
-              )}
-              {knownAssignees.length > 0 && (userId || displayBead.assignee) && (
-                <div className="dropdown-divider" />
-              )}
-              {knownAssignees
-                .filter((a) => a !== displayBead.assignee)
-                .map((a) => (
-                  <DropdownItem key={a} onClick={() => handleFieldChange("assignee", a)}>
-                    {a}
-                  </DropdownItem>
-                ))}
-              <div className="dropdown-divider" />
-              <div className="assignee-input-row">
-                <input
-                  type="text"
-                  className="assignee-input"
-                  placeholder="Type a name…"
-                  value={customAssignee}
-                  onChange={(e) => setCustomAssignee(e.target.value)}
-                  onKeyDown={(e) => {
-                    e.stopPropagation();
-                    if (e.key === "Enter" && customAssignee.trim()) {
-                      handleFieldChange("assignee", customAssignee.trim());
-                      setCustomAssignee("");
-                    }
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </div>
-            </Dropdown>
-            {/* Labels in edit mode - pushed to right, input first */}
-            <span className="badges-spacer" />
-            <Icon name="tag" size={10} className="labels-icon" title="Labels" />
-            <div className="add-label-inline">
-              <input
-                type="text"
-                value={newLabel}
-                onChange={(e) => setNewLabel(e.target.value)}
-                placeholder="+ label"
-                onKeyDown={(e) => e.key === "Enter" && handleAddLabel()}
-              />
-            </div>
-            {sortLabels(displayBead.labels).map((label) => (
-              <LabelBadge
-                key={label}
-                label={label}
-                onRemove={() => handleRemoveLabel(label)}
-              />
-            ))}
-          </>
-        ) : (
-          <>
-            <ColoredSelect
-              value={(displayBead.type || "task") as BeadType}
-              options={TYPE_OPTIONS}
-              onChange={(v) => handleInlineUpdate("type", v)}
-              renderTrigger={() => <TypeBadge type={(displayBead.type || "task") as BeadType} size="small" />}
-              renderOption={(opt) => <TypeBadge type={opt.value as BeadType} size="small" />}
-              showChevron={false}
-            />
-            <ColoredSelect
-              value={displayBead.status}
-              options={STATUS_OPTIONS}
-              onChange={(v) => handleInlineUpdate("status", v)}
-              renderTrigger={() => <StatusBadge status={displayBead.status} size="small" />}
-              renderOption={(opt) => <StatusBadge status={opt.value as BeadStatus} size="small" />}
-              showChevron={false}
-            />
-            <ColoredSelect
-              value={displayBead.priority ?? 4}
-              options={PRIORITY_OPTIONS}
-              onChange={(v) => handleInlineUpdate("priority", v)}
-              renderTrigger={() => <PriorityBadge priority={displayBead.priority ?? 4} size="small" />}
-              renderOption={(opt) => <PriorityBadge priority={opt.value as BeadPriority} size="small" />}
-              showChevron={false}
-            />
-            <Dropdown
-              trigger={
-                <span className="assignee-trigger">
-                  <Icon name="user" size={10} className="person-icon" />
-                  <span className={`assignee-name ${!displayBead.assignee ? "muted" : ""}`}>
-                    {displayBead.assignee || "Unassigned"}
-                  </span>
-                </span>
-              }
-              className="assignee-menu"
-              triggerClassName="assignee-menu-trigger"
-              showChevron={false}
-            >
-              {userId && displayBead.assignee !== userId && (
-                <DropdownItem onClick={() => handleInlineUpdate("assignee", userId)}>
-                  Assign to me
-                </DropdownItem>
-              )}
-              {displayBead.assignee && (
-                <DropdownItem onClick={() => handleInlineUpdate("assignee", "")}>
-                  Unassign
-                </DropdownItem>
-              )}
-              {knownAssignees.length > 0 && (userId || displayBead.assignee) && (
-                <div className="dropdown-divider" />
-              )}
-              {knownAssignees
-                .filter((a) => a !== displayBead.assignee)
-                .map((a) => (
-                  <DropdownItem key={a} onClick={() => handleInlineUpdate("assignee", a)}>
-                    {a}
-                  </DropdownItem>
-                ))}
-              <div className="dropdown-divider" />
-              <div className="assignee-input-row">
-                <input
-                  type="text"
-                  className="assignee-input"
-                  placeholder="Type a name…"
-                  value={customAssignee}
-                  onChange={(e) => setCustomAssignee(e.target.value)}
-                  onKeyDown={(e) => {
-                    e.stopPropagation();
-                    if (e.key === "Enter" && customAssignee.trim()) {
-                      handleInlineUpdate("assignee", customAssignee.trim());
-                      setCustomAssignee("");
-                    }
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                />
-              </div>
-            </Dropdown>
-            {/* Labels inline in display mode - pushed to right */}
-            {displayBead.labels && displayBead.labels.length > 0 && (
-              <>
-                <span className="badges-spacer" />
-                <Icon name="tag" size={10} className="labels-icon" title="Labels" />
-                {sortLabels(displayBead.labels).map((label) => (
-                  <LabelBadge key={label} label={label} />
-                ))}
-              </>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Description */}
-      <div className="details-section">
-        <h4>Description</h4>
-        {editMode ? (
-          <textarea
-            value={displayBead.description || ""}
-            onChange={(e) => handleFieldChange("description", e.target.value)}
-            className="description-input"
-            rows={4}
-            placeholder="No description"
-          />
-        ) : displayBead.description ? (
-          <TextContent content={displayBead.description} renderMarkdown={renderMarkdown} />
-        ) : (
-          <p className="description-text muted">No description</p>
-        )}
-      </div>
-
-      {/* Bugzilla ID */}
-      {(displayBead.bugzillaId || editMode) && (
-        <div className="details-section compact">
-          <h4>Bugzilla ID</h4>
-          {editMode ? (
-            <input
-              type="number"
-              value={displayBead.bugzillaId ?? ""}
-              onChange={(e) => handleFieldChange("bugzillaId", e.target.value ? parseInt(e.target.value, 10) : null)}
-              className="text-input"
-              placeholder="Bugzilla bug number"
-              min="1"
-            />
-          ) : (
-            <a
-              href={`https://bugzilla.startensystems.com/show_bug.cgi?id=${displayBead.bugzillaId}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="external-link"
-              title={`Bugzilla #${displayBead.bugzillaId}`}
-            >
-              <span className="external-link-text">#{displayBead.bugzillaId}</span>
-              <Icon name="external-link" size={10} className="external-link-icon" />
-            </a>
+        <ColoredSelect
+          value={(displayBead.type || "task") as BeadType}
+          options={TYPE_OPTIONS}
+          onChange={(v) => handleInlineUpdate("type", v)}
+          renderTrigger={() => <TypeBadge type={(displayBead.type || "task") as BeadType} size="small" />}
+          renderOption={(opt) => <TypeBadge type={opt.value as BeadType} size="small" />}
+          showChevron={false}
+        />
+        <ColoredSelect
+          value={displayBead.status}
+          options={STATUS_OPTIONS}
+          onChange={(v) => handleInlineUpdate("status", v)}
+          renderTrigger={() => <StatusBadge status={displayBead.status} size="small" />}
+          renderOption={(opt) => <StatusBadge status={opt.value as BeadStatus} size="small" />}
+          showChevron={false}
+        />
+        <ColoredSelect
+          value={displayBead.priority ?? 4}
+          options={PRIORITY_OPTIONS}
+          onChange={(v) => handleInlineUpdate("priority", v)}
+          renderTrigger={() => <PriorityBadge priority={displayBead.priority ?? 4} size="small" />}
+          renderOption={(opt) => <PriorityBadge priority={opt.value as BeadPriority} size="small" />}
+          showChevron={false}
+        />
+        <Dropdown
+          trigger={
+            <span className="assignee-trigger">
+              <Icon name="user" size={10} className="person-icon" />
+              <span className={`assignee-name ${!displayBead.assignee ? "muted" : ""}`}>
+                {displayBead.assignee || "Unassigned"}
+              </span>
+            </span>
+          }
+          className="assignee-menu"
+          triggerClassName="assignee-menu-trigger"
+          showChevron={false}
+        >
+          {userId && displayBead.assignee !== userId && (
+            <DropdownItem onClick={() => handleInlineUpdate("assignee", userId)}>
+              Assign to me
+            </DropdownItem>
           )}
-        </div>
-      )}
-
-      {/* External Reference */}
-      {(displayBead.externalRef || editMode) && (
-        <div className="details-section compact">
-          <h4>External Reference</h4>
-          {editMode ? (
+          {displayBead.assignee && (
+            <DropdownItem onClick={() => handleInlineUpdate("assignee", "")}>
+              Unassign
+            </DropdownItem>
+          )}
+          {knownAssignees.length > 0 && (userId || displayBead.assignee) && (
+            <div className="dropdown-divider" />
+          )}
+          {knownAssignees
+            .filter((a) => a !== displayBead.assignee)
+            .map((a) => (
+              <DropdownItem key={a} onClick={() => handleInlineUpdate("assignee", a)}>
+                {a}
+              </DropdownItem>
+            ))}
+          <div className="dropdown-divider" />
+          <div className="assignee-input-row">
             <input
               type="text"
-              value={displayBead.externalRef || ""}
-              onChange={(e) => handleFieldChange("externalRef", e.target.value || null)}
-              className="text-input"
-              placeholder="URL or reference ID"
+              className="assignee-input"
+              placeholder="Type a name…"
+              value={customAssignee}
+              onChange={(e) => setCustomAssignee(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter" && customAssignee.trim()) {
+                  handleInlineUpdate("assignee", customAssignee.trim());
+                  setCustomAssignee("");
+                }
+              }}
+              onClick={(e) => e.stopPropagation()}
             />
-          ) : (
-            <ExternalRefValue value={displayBead.externalRef} />
-          )}
+          </div>
+        </Dropdown>
+        {/* Labels - always visible with add input */}
+        <span className="badges-spacer" />
+        <Icon name="tag" size={10} className="labels-icon" title="Labels" />
+        <div className="add-label-inline">
+          <input
+            type="text"
+            value={newLabel}
+            onChange={(e) => setNewLabel(e.target.value)}
+            placeholder="+ label"
+            onKeyDown={(e) => e.key === "Enter" && handleAddLabel()}
+          />
+        </div>
+        {sortLabels(displayBead.labels).map((label) => (
+          <LabelBadge
+            key={label}
+            label={label}
+            onRemove={() => handleRemoveLabel(label)}
+          />
+        ))}
+      </div>
+
+      {/* Description - click to edit */}
+      <div className="details-section">
+        <h4>Description</h4>
+        {editingField === "description" ? (
+          <textarea
+            value={editingValue}
+            onChange={(e) => setEditingValue(e.target.value)}
+            className="description-input"
+            rows={4}
+            autoFocus
+            onBlur={saveEditing}
+            onKeyDown={editKeyHandler}
+          />
+        ) : displayBead.description ? (
+          <div className="editable-text" onClick={() => startEditing("description", displayBead.description || "")}>
+            <TextContent content={displayBead.description} renderMarkdown={renderMarkdown} />
+          </div>
+        ) : (
+          <p className="editable-placeholder" onClick={() => startEditing("description", "")}>
+            Add description...
+          </p>
+        )}
+      </div>
+
+      {/* Bugzilla ID - display only when set */}
+      {displayBead.bugzillaId && (
+        <div className="details-section compact">
+          <h4>Bugzilla ID</h4>
+          <a
+            href={`https://bugzilla.startensystems.com/show_bug.cgi?id=${displayBead.bugzillaId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="external-link"
+            title={`Bugzilla #${displayBead.bugzillaId}`}
+          >
+            <span className="external-link-text">#{displayBead.bugzillaId}</span>
+            <Icon name="external-link" size={10} className="external-link-icon" />
+          </a>
         </div>
       )}
 
-      {/* Estimate */}
-      {(displayBead.estimatedMinutes || editMode) && (
+      {/* External Reference - display only when set */}
+      {displayBead.externalRef && (
+        <div className="details-section compact">
+          <h4>External Reference</h4>
+          <ExternalRefValue value={displayBead.externalRef} />
+        </div>
+      )}
+
+      {/* Estimate - display only when set */}
+      {displayBead.estimatedMinutes && (
         <div className="details-section compact">
           <h4>Estimate (minutes)</h4>
-          {editMode ? (
-            <input
-              type="number"
-              value={displayBead.estimatedMinutes || ""}
-              onChange={(e) => handleFieldChange("estimatedMinutes", e.target.value ? parseInt(e.target.value, 10) : null)}
-              className="text-input estimate-input"
-              placeholder="Minutes"
-              min="0"
-            />
-          ) : (
-            <span className="estimate-value">
-              {Math.floor(displayBead.estimatedMinutes! / 60)}h {displayBead.estimatedMinutes! % 60}m
-            </span>
-          )}
+          <span className="estimate-value">
+            {Math.floor(displayBead.estimatedMinutes / 60)}h {displayBead.estimatedMinutes % 60}m
+          </span>
         </div>
       )}
 
-      {/* Design */}
-      {(displayBead.design || editMode) && (
-        <div className="details-section">
-          <h4>Design Notes</h4>
-          {editMode ? (
-            <textarea
-              value={displayBead.design || ""}
-              onChange={(e) => handleFieldChange("design", e.target.value)}
-              className="description-input"
-              rows={3}
-              placeholder="Design considerations, architecture notes..."
-            />
-          ) : (
-            <TextContent content={displayBead.design!} renderMarkdown={renderMarkdown} />
-          )}
-        </div>
-      )}
+      {/* Design Notes - click to edit */}
+      <div className="details-section">
+        <h4>Design Notes</h4>
+        {editingField === "design" ? (
+          <textarea
+            value={editingValue}
+            onChange={(e) => setEditingValue(e.target.value)}
+            className="description-input"
+            rows={3}
+            autoFocus
+            onBlur={saveEditing}
+            onKeyDown={editKeyHandler}
+          />
+        ) : displayBead.design ? (
+          <div className="editable-text" onClick={() => startEditing("design", displayBead.design || "")}>
+            <TextContent content={displayBead.design} renderMarkdown={renderMarkdown} />
+          </div>
+        ) : (
+          <p className="editable-placeholder" onClick={() => startEditing("design", "")}>
+            Add design notes...
+          </p>
+        )}
+      </div>
 
-      {/* Acceptance Criteria */}
-      {(displayBead.acceptanceCriteria || editMode) && (
-        <div className="details-section">
-          <h4>Acceptance Criteria</h4>
-          {editMode ? (
-            <textarea
-              value={displayBead.acceptanceCriteria || ""}
-              onChange={(e) => handleFieldChange("acceptanceCriteria", e.target.value)}
-              className="description-input"
-              rows={3}
-              placeholder="Definition of done..."
-            />
-          ) : (
-            <TextContent content={displayBead.acceptanceCriteria!} renderMarkdown={renderMarkdown} />
-          )}
-        </div>
-      )}
+      {/* Acceptance Criteria - click to edit */}
+      <div className="details-section">
+        <h4>Acceptance Criteria</h4>
+        {editingField === "acceptanceCriteria" ? (
+          <textarea
+            value={editingValue}
+            onChange={(e) => setEditingValue(e.target.value)}
+            className="description-input"
+            rows={3}
+            autoFocus
+            onBlur={saveEditing}
+            onKeyDown={editKeyHandler}
+          />
+        ) : displayBead.acceptanceCriteria ? (
+          <div className="editable-text" onClick={() => startEditing("acceptanceCriteria", displayBead.acceptanceCriteria || "")}>
+            <TextContent content={displayBead.acceptanceCriteria} renderMarkdown={renderMarkdown} />
+          </div>
+        ) : (
+          <p className="editable-placeholder" onClick={() => startEditing("acceptanceCriteria", "")}>
+            Add acceptance criteria...
+          </p>
+        )}
+      </div>
 
-      {/* Working Notes */}
-      {(displayBead.notes || editMode) && (
-        <div className="details-section">
-          <h4>Working Notes</h4>
-          {editMode ? (
-            <textarea
-              value={displayBead.notes || ""}
-              onChange={(e) => handleFieldChange("notes", e.target.value)}
-              className="description-input"
-              rows={3}
-              placeholder="Progress notes, findings..."
-            />
-          ) : (
-            <TextContent content={displayBead.notes!} renderMarkdown={renderMarkdown} />
-          )}
-        </div>
-      )}
+      {/* Working Notes - click to edit */}
+      <div className="details-section">
+        <h4>Working Notes</h4>
+        {editingField === "notes" ? (
+          <textarea
+            value={editingValue}
+            onChange={(e) => setEditingValue(e.target.value)}
+            className="description-input"
+            rows={3}
+            autoFocus
+            onBlur={saveEditing}
+            onKeyDown={editKeyHandler}
+          />
+        ) : displayBead.notes ? (
+          <div className="editable-text" onClick={() => startEditing("notes", displayBead.notes || "")}>
+            <TextContent content={displayBead.notes} renderMarkdown={renderMarkdown} />
+          </div>
+        ) : (
+          <p className="editable-placeholder" onClick={() => startEditing("notes", "")}>
+            Add working notes...
+          </p>
+        )}
+      </div>
 
       {/* Dependencies grouped by relationship type */}
       {(() => {
         const dependsOnGroups = groupDependenciesByType(displayBead.dependsOn || []);
         const blocksGroups = groupDependenciesByType(displayBead.blocks || []);
-        const hasDependsOn = (displayBead.dependsOn?.length || 0) > 0;
-        const hasBlocks = (displayBead.blocks?.length || 0) > 0;
 
         // Define rendering order: hierarchy first, then workflow, then provenance, then related
         const typeOrder: DependencyType[] = ["parent-child", "blocks", "discovered-from", "related"];
 
         // Helper to render a dependency item
-        const renderDepItem = (dep: BeadDependency, direction: "dependsOn" | "blocks", allowRemove: boolean) => (
+        const renderDepItem = (dep: BeadDependency, _direction: "dependsOn" | "blocks", allowRemove: boolean) => (
           <div
             key={dep.id}
-            className={`dep-item dep-type-${dep.type || "task"} ${onSelectBead && !editMode ? "clickable" : ""}`}
-            onClick={() => !editMode && onSelectBead?.(dep.id)}
+            className={`dep-item dep-type-${dep.type || "task"} ${onSelectBead ? "clickable" : ""}`}
+            onClick={() => onSelectBead?.(dep.id)}
           >
             <span className="dep-id">{dep.id}</span>
             {dep.title && <span className="dep-title">{dep.title}</span>}
             <StatusPriorityPill status={dep.status} priority={dep.priority} />
-            {allowRemove && editMode && (
+            {allowRemove && (
               <button
                 className="dep-remove"
                 onClick={(e) => {
@@ -714,13 +651,9 @@ export function DetailsView({
           </div>
         );
 
-        if (!editMode && !hasDependsOn && !hasBlocks) {
-          return null;
-        }
-
         return (
           <>
-            {/* Render dependencies interleaved by type: parent→children, then blocked by→blocks, etc. */}
+            {/* Render dependencies interleaved by type */}
             {typeOrder.map((depType) => {
               const dependsOnDeps = dependsOnGroups[depType];
               const blocksDeps = blocksGroups[depType];
@@ -747,40 +680,38 @@ export function DetailsView({
               );
             })}
 
-            {/* Add dependency input in edit mode */}
-            {editMode && (
-              <div className="details-section">
-                <h4>Add Dependency</h4>
-                <div className="add-inline add-dependency-row">
-                  <Dropdown
-                    trigger={
-                      <span className="dep-type-trigger">
-                        {DEPENDENCY_TYPE_OPTIONS[newDepOptionIndex].label}
-                      </span>
-                    }
-                    className="dep-type-dropdown"
-                    menuClassName="dep-type-menu"
-                  >
-                    {DEPENDENCY_TYPE_OPTIONS.map((opt, idx) => (
-                      <DropdownItem
-                        key={`${opt.value}-${opt.direction}`}
-                        onClick={() => setNewDepOptionIndex(idx)}
-                        active={idx === newDepOptionIndex}
-                      >
-                        {opt.label}
-                      </DropdownItem>
-                    ))}
-                  </Dropdown>
-                  <input
-                    type="text"
-                    value={newDependency}
-                    onChange={(e) => setNewDependency(e.target.value)}
-                    placeholder="+ issue ID"
-                    onKeyDown={(e) => e.key === "Enter" && handleAddDependency()}
-                  />
-                </div>
+            {/* Add dependency - always visible */}
+            <div className="details-section">
+              <h4>Add Dependency</h4>
+              <div className="add-inline add-dependency-row">
+                <Dropdown
+                  trigger={
+                    <span className="dep-type-trigger">
+                      {DEPENDENCY_TYPE_OPTIONS[newDepOptionIndex].label}
+                    </span>
+                  }
+                  className="dep-type-dropdown"
+                  menuClassName="dep-type-menu"
+                >
+                  {DEPENDENCY_TYPE_OPTIONS.map((opt, idx) => (
+                    <DropdownItem
+                      key={`${opt.value}-${opt.direction}`}
+                      onClick={() => setNewDepOptionIndex(idx)}
+                      active={idx === newDepOptionIndex}
+                    >
+                      {opt.label}
+                    </DropdownItem>
+                  ))}
+                </Dropdown>
+                <input
+                  type="text"
+                  value={newDependency}
+                  onChange={(e) => setNewDependency(e.target.value)}
+                  placeholder="+ issue ID"
+                  onKeyDown={(e) => e.key === "Enter" && handleAddDependency()}
+                />
               </div>
-            )}
+            </div>
           </>
         );
       })()}
@@ -788,24 +719,23 @@ export function DetailsView({
       {/* Comments */}
       <div className="details-section">
         <h4>Comments ({(displayBead.comments || []).length})</h4>
-        <div className="comments-list">
-          {(displayBead.comments || []).map((comment) => (
-            <div key={comment.id} className="comment">
-              <div className="comment-header">
-                <span className="comment-author">{comment.author}</span>
-                <span className="comment-date">
-                  <Timestamp value={comment.createdAt} />
-                </span>
+        {(displayBead.comments || []).length > 0 && (
+          <div className="comments-list">
+            {(displayBead.comments || []).map((comment) => (
+              <div key={comment.id} className="comment">
+                <div className="comment-header">
+                  <span className="comment-author">{comment.author}</span>
+                  <span className="comment-date">
+                    <Timestamp value={comment.createdAt} />
+                  </span>
+                </div>
+                <div className="comment-text">
+                  <TextContent content={comment.text} renderMarkdown={renderMarkdown} />
+                </div>
               </div>
-              <div className="comment-text">
-                <TextContent content={comment.text} renderMarkdown={renderMarkdown} />
-              </div>
-            </div>
-          ))}
-          {(displayBead.comments || []).length === 0 && (
-            <span className="muted">No comments</span>
-          )}
-        </div>
+            ))}
+          </div>
+        )}
         {/* Comment input - always shown if callback provided */}
         {onAddComment && (
           <div className="add-comment">

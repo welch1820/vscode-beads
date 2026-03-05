@@ -160,12 +160,17 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
             acceptanceCriteria,
             estimatedMinutes,
             bugzillaId,
+            type: issueType,
             ...rest
           } = message.updates;
           const updateArgs: Record<string, unknown> = {
             id: message.beadId,
             ...rest,
           };
+          // Map webview 'type' to CLI 'issue_type'
+          if (issueType !== undefined) {
+            updateArgs.issue_type = issueType;
+          }
           // Daemon uses set_labels instead of labels
           if (labels !== undefined) {
             updateArgs.set_labels = labels;

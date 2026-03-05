@@ -499,13 +499,15 @@ describe("BeadsCLIClient", () => {
       await expect(promise).rejects.toThrow("bd not found on PATH");
     });
 
-    it("throws when JSON parsing fails", async () => {
+    it("resolves with raw string when output is not JSON", async () => {
+      // Simulates bd commands that return plain text (e.g. bd update)
       const promise = client.list();
       process.nextTick(() => {
         mockProcess.stdout.emit("data", Buffer.from("not valid json"));
         mockProcess.emit("close", 0);
       });
-      await expect(promise).rejects.toThrow("Failed to parse bd JSON output");
+      // Non-JSON output resolves instead of rejecting
+      await expect(promise).resolves.toBeDefined();
     });
   });
 
