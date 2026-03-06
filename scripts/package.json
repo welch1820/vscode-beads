@@ -1,0 +1,11 @@
+{
+  "name": "vscode-beads-scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "screenshot": "node screenshot.mjs"
+  },
+  "dependencies": {
+    "puppeteer": "^24.0.0"
+  }
+}

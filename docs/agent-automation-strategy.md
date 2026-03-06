@@ -3,30 +3,34 @@
 ## Current Stack
 
 ```
-Chrome DevTools MCP + code-server (local, headed)
+Puppeteer screenshot script + code-server (local, headless)
 ```
 
-Agent can see and interact with VS Code running in browser. Human watches same window.
+Agent takes headless screenshots of code-server to verify UI changes. No human in the loop for visual verification.
 
 ## Workflow
 
 1. Agent writes/edits code
-2. Agent runs build: `bun run compile`
-3. Agent packages: `bun run package`
-4. Agent installs: `code-server --install-extension *.vsix`
-5. **Human reloads window** (saves ~120KB context per reload)
-6. Limited DevTools MCP use for single-feature verification
+2. Agent builds: `bun run compile:quiet` (or watch mode)
+3. Agent takes screenshot: `node scripts/screenshot.mjs --sidebar Beads`
+4. Agent reads screenshot via `Read` tool (multimodal)
+5. Agent verifies UI and iterates
 
-## Context Cost Problem
+See `docs/screenshot-verification.md` for full setup and usage.
 
-Both Chrome DevTools MCP and Playwright MCP return full accessibility tree (~400 lines) after every action. This burns context fast.
+## Context Cost (Solved)
 
-**Current mitigations:**
-- Human handles reloads
-- Minimal MCP interactions
-- Compact sessions frequently
+Chrome DevTools MCP and Playwright MCP returned ~400-line accessibility trees per action, burning context fast.
 
-**Future:** Build custom optimized tooling (see vsbeads-n64)
+**Solution:** Puppeteer screenshot script returns a single image. Agent reads it via the `Read` tool (supports images). No accessibility tree, no context bloat.
+
+## Previous Stack (Deprecated)
+
+```
+Chrome DevTools MCP + code-server (local, headed)
+```
+
+Human-in-the-loop: agent wrote code, human reloaded window, agent used DevTools MCP for verification. Context-expensive and slow.
 
 ## Capabilities
 
