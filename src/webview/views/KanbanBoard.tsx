@@ -43,6 +43,30 @@ export function KanbanBoard({ beads, selectedBeadId, onSelectBead, onUpdateBead,
   // Track which bead is being dragged
   const [draggedBeadId, setDraggedBeadId] = useState<string | null>(null);
 
+  // Auto-expand collapsed column when selected bead is in it
+  useEffect(() => {
+    if (!selectedBeadId) return;
+    const selectedBead = beads.find((b) => b.id === selectedBeadId);
+    if (selectedBead && collapsedColumns.has(selectedBead.status)) {
+      setCollapsedColumns((prev) => {
+        const next = new Set(prev);
+        next.delete(selectedBead.status);
+        return next;
+      });
+    }
+  }, [selectedBeadId, beads]);
+
+  // Scroll selected card into view
+  useEffect(() => {
+    if (!selectedBeadId) return;
+    // Delay slightly to allow column expansion to render
+    const timer = setTimeout(() => {
+      const el = document.querySelector(`.kanban-card.selected`);
+      el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [selectedBeadId]);
+
   // Clean up optimistic overrides once the backend catches up
   useEffect(() => {
     if (optimisticStatus.size === 0) return;
