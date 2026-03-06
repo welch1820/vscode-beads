@@ -51,6 +51,8 @@ export interface Bead {
   blocks?: BeadDependency[];
   comments?: BeadComment[];
   sortOrder?: number;
+  isBlocked?: boolean;
+  blockedBy?: string[]; // IDs of beads that block this one
 }
 
 export interface BeadsProject {

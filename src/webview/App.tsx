@@ -197,6 +197,7 @@ export function App(): React.ReactElement {
         return (
           <DetailsView
             bead={state.selectedBead}
+            allBeads={state.beads}
             loading={state.loading}
             renderMarkdown={state.settings.renderMarkdown}
             userId={state.settings.userId}

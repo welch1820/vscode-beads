@@ -314,6 +314,36 @@ export class BeadsCLIClient extends EventEmitter {
     return (result as Issue[]) ?? [];
   }
 
+  async blocked(): Promise<string[]> {
+    try {
+      const result = await this.execBd(["blocked", "--json"]);
+      if (Array.isArray(result)) {
+        return result.map((item: { id?: string }) => item.id ?? "").filter(Boolean);
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Returns a map of blocked bead ID → array of blocker IDs */
+  async blockedByMap(): Promise<Map<string, string[]>> {
+    try {
+      const result = await this.execBd(["blocked", "--json"]);
+      const map = new Map<string, string[]>();
+      if (Array.isArray(result)) {
+        for (const item of result) {
+          const id = item.id ?? "";
+          const blockers = Array.isArray(item.blocked_by) ? item.blocked_by : [];
+          if (id) map.set(id, blockers);
+        }
+      }
+      return map;
+    } catch {
+      return new Map();
+    }
+  }
+
   async stats(): Promise<StatsResponse> {
     const result = await this.execBd(["stats", "--json"]) as {
       summary?: {

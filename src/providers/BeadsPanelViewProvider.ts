@@ -47,8 +47,17 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
     this.setError(null);
 
     try {
-      const issues = await client.list({ status: "all" });
-      const beads = issues.map(issueToWebviewBead).filter((b): b is Bead => b !== null);
+      const [issues, blockedByMap] = await Promise.all([
+        client.list({ status: "all" }),
+        client.blockedByMap(),
+      ]);
+      const beads = issues
+        .map(issueToWebviewBead)
+        .filter((b): b is Bead => b !== null)
+        .map((b) => {
+          const blockers = blockedByMap.get(b.id);
+          return blockers ? { ...b, isBlocked: true, blockedBy: blockers } : b;
+        });
       this.postMessage({ type: "setBeads", beads });
     } catch (err) {
       this.setError(String(err));

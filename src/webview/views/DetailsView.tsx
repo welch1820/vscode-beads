@@ -25,6 +25,7 @@ import {
 } from "../types";
 import { Timestamp } from "../common/Timestamp";
 import { StatusPriorityPill } from "../common/StatusPriorityPill";
+import { BlockedBadge } from "../common/BlockedBadge";
 
 /**
  * Detects if a string looks like a URL
@@ -166,6 +167,7 @@ const PRIORITY_OPTIONS: ColoredSelectOption<BeadPriority>[] = ([0, 1, 2, 3, 4] a
 
 interface DetailsViewProps {
   bead: Bead | null;
+  allBeads?: Bead[];
   loading: boolean;
   renderMarkdown?: boolean;
   userId?: string;
@@ -190,6 +192,7 @@ function TextContent({ content, renderMarkdown }: { content: string; renderMarkd
 
 export function DetailsView({
   bead,
+  allBeads = [],
   loading,
   renderMarkdown = true,
   userId = "",
@@ -212,8 +215,11 @@ export function DetailsView({
   const [editingValue, setEditingValue] = useState("");
   const [newLabel, setNewLabel] = useState("");
   const [customAssignee, setCustomAssignee] = useState("");
-  const [newDependency, setNewDependency] = useState("");
   const [newDepOptionIndex, setNewDepOptionIndex] = useState(0); // Index into DEPENDENCY_TYPE_OPTIONS
+  const [depPickerOpen, setDepPickerOpen] = useState(false);
+  const [depSearchQuery, setDepSearchQuery] = useState("");
+  const depPickerRef = useRef<HTMLDivElement>(null);
+  const depSearchRef = useRef<HTMLInputElement>(null);
   const [newComment, setNewComment] = useState("");
 
   // Ref to track pending edit for auto-save on bead switch
@@ -299,13 +305,53 @@ export function DetailsView({
     [bead, editedBead.labels, handleInlineUpdate]
   );
 
-  const handleAddDependency = useCallback(() => {
-    if (newDependency.trim() && bead) {
+  const handleAddDependencyById = useCallback((targetId: string) => {
+    if (targetId && bead) {
       const option = DEPENDENCY_TYPE_OPTIONS[newDepOptionIndex];
-      onAddDependency(bead.id, newDependency.trim(), option.value, option.direction === "reverse");
-      setNewDependency("");
+      onAddDependency(bead.id, targetId, option.value, option.direction === "reverse");
+      setDepPickerOpen(false);
+      setDepSearchQuery("");
     }
-  }, [newDependency, newDepOptionIndex, bead, onAddDependency]);
+  }, [newDepOptionIndex, bead, onAddDependency]);
+
+  // Close dep picker on click outside
+  useEffect(() => {
+    if (!depPickerOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (depPickerRef.current && !depPickerRef.current.contains(e.target as Node)) {
+        setDepPickerOpen(false);
+        setDepSearchQuery("");
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [depPickerOpen]);
+
+  // Focus search input when picker opens
+  useEffect(() => {
+    if (depPickerOpen && depSearchRef.current) {
+      depSearchRef.current.focus();
+    }
+  }, [depPickerOpen]);
+
+  // Filter beads for the dependency picker: exclude current bead + already linked beads
+  const availableBeadsForPicker = React.useMemo(() => {
+    if (!bead) return [];
+    const linkedIds = new Set<string>();
+    linkedIds.add(bead.id);
+    for (const dep of bead.dependsOn || []) linkedIds.add(dep.id);
+    for (const dep of bead.blocks || []) linkedIds.add(dep.id);
+
+    const query = depSearchQuery.toLowerCase();
+    return allBeads
+      .filter((b) => !linkedIds.has(b.id))
+      .filter((b) => b.status !== "closed")
+      .filter((b) => {
+        if (!query) return true;
+        return b.id.toLowerCase().includes(query) || b.title.toLowerCase().includes(query);
+      })
+      .slice(0, 20); // Limit results for performance
+  }, [bead, allBeads, depSearchQuery]);
 
   if (loading && !bead) {
     return <div className="details-loading">Loading...</div>;
@@ -415,6 +461,7 @@ export function DetailsView({
           renderOption={(opt) => <PriorityBadge priority={opt.value as BeadPriority} size="small" />}
           showChevron={false}
         />
+        {displayBead.isBlocked && <BlockedBadge />}
         <Dropdown
           trigger={
             <span className="assignee-trigger">
@@ -628,7 +675,7 @@ export function DetailsView({
         const typeOrder: DependencyType[] = ["parent-child", "blocks", "discovered-from", "related"];
 
         // Helper to render a dependency item
-        const renderDepItem = (dep: BeadDependency, _direction: "dependsOn" | "blocks", allowRemove: boolean) => (
+        const renderDepItem = (dep: BeadDependency, direction: "dependsOn" | "blocks") => (
           <div
             key={dep.id}
             className={`dep-item dep-type-${dep.type || "task"} ${onSelectBead ? "clickable" : ""}`}
@@ -637,17 +684,21 @@ export function DetailsView({
             <span className="dep-id">{dep.id}</span>
             {dep.title && <span className="dep-title">{dep.title}</span>}
             <StatusPriorityPill status={dep.status} priority={dep.priority} />
-            {allowRemove && (
-              <button
-                className="dep-remove"
-                onClick={(e) => {
-                  e.stopPropagation();
+            <button
+              className="dep-remove"
+              onClick={(e) => {
+                e.stopPropagation();
+                // "dependsOn": bead depends on dep → remove(bead, dep)
+                // "blocks": dep depends on bead → remove(dep, bead)
+                if (direction === "dependsOn") {
                   onRemoveDependency(bead.id, dep.id);
-                }}
-              >
-                ×
-              </button>
-            )}
+                } else {
+                  onRemoveDependency(dep.id, bead.id);
+                }
+              }}
+            >
+              ×
+            </button>
           </div>
         );
 
@@ -664,7 +715,7 @@ export function DetailsView({
                     <div className="details-section">
                       <h4>{DEPENDENCY_LABELS.dependsOn[depType]}</h4>
                       <div className="deps-list">
-                        {sortDependencies(dependsOnDeps).map((dep) => renderDepItem(dep, "dependsOn", true))}
+                        {sortDependencies(dependsOnDeps).map((dep) => renderDepItem(dep, "dependsOn"))}
                       </div>
                     </div>
                   )}
@@ -672,7 +723,7 @@ export function DetailsView({
                     <div className="details-section">
                       <h4>{DEPENDENCY_LABELS.blocks[depType]}</h4>
                       <div className="deps-list">
-                        {sortDependencies(blocksDeps).map((dep) => renderDepItem(dep, "blocks", false))}
+                        {sortDependencies(blocksDeps).map((dep) => renderDepItem(dep, "blocks"))}
                       </div>
                     </div>
                   )}
@@ -703,13 +754,44 @@ export function DetailsView({
                     </DropdownItem>
                   ))}
                 </Dropdown>
-                <input
-                  type="text"
-                  value={newDependency}
-                  onChange={(e) => setNewDependency(e.target.value)}
-                  placeholder="+ issue ID"
-                  onKeyDown={(e) => e.key === "Enter" && handleAddDependency()}
-                />
+                <div className="dep-picker" ref={depPickerRef}>
+                  <input
+                    ref={depSearchRef}
+                    type="text"
+                    value={depSearchQuery}
+                    onChange={(e) => {
+                      setDepSearchQuery(e.target.value);
+                      if (!depPickerOpen) setDepPickerOpen(true);
+                    }}
+                    onFocus={() => setDepPickerOpen(true)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        setDepPickerOpen(false);
+                        setDepSearchQuery("");
+                      }
+                    }}
+                    placeholder="Search beads..."
+                  />
+                  {depPickerOpen && (
+                    <div className="dep-picker-menu">
+                      {availableBeadsForPicker.length === 0 ? (
+                        <div className="dep-picker-empty">No matching beads</div>
+                      ) : (
+                        availableBeadsForPicker.map((b) => (
+                          <button
+                            key={b.id}
+                            className="dep-picker-item"
+                            onClick={() => handleAddDependencyById(b.id)}
+                          >
+                            <StatusPriorityPill status={b.status} priority={b.priority} />
+                            <span className="dep-picker-id">{b.id}</span>
+                            <span className="dep-picker-title">{b.title}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </>

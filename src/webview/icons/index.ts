@@ -18,6 +18,7 @@ import flaskSvg from "./flask.svg";
 import userSvg from "./user.svg";
 import tagSvg from "./tag.svg";
 import externalLinkSvg from "./external-link.svg";
+import banSvg from "./ban.svg";
 import notdefSvg from "./notdef.svg";
 
 export const icons = {
@@ -33,6 +34,7 @@ export const icons = {
   user: userSvg,
   tag: tagSvg,
   "external-link": externalLinkSvg,
+  ban: banSvg,
   notdef: notdefSvg,
 } as const;
 
