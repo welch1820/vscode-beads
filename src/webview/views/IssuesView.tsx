@@ -161,6 +161,33 @@ export function IssuesView({
   const filterMenuRef = useRef<HTMLDivElement>(null);
   const columnMenuRef = useRef<HTMLTableCellElement>(null);
 
+  // Auto-include selected bead's status in filters and scroll into view
+  useEffect(() => {
+    if (!selectedBeadId) return;
+    const bead = beads.find((b) => b.id === selectedBeadId);
+    if (!bead) return;
+
+    // If the bead's status is filtered out, add it to the status filter
+    const statusFilter = columnFilters.find((f) => f.id === "status");
+    if (statusFilter && Array.isArray(statusFilter.value)) {
+      const activeStatuses = statusFilter.value as string[];
+      if (!activeStatuses.includes(bead.status)) {
+        setColumnFilters((prev) =>
+          prev.map((f) =>
+            f.id === "status" ? { ...f, value: [...activeStatuses, bead.status] } : f
+          )
+        );
+      }
+    }
+
+    // Scroll selected row into view (delay for filter/render updates)
+    const timer = setTimeout(() => {
+      const el = document.querySelector(`.bead-row.selected`);
+      el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [selectedBeadId]);
+
   // Tooltip state
   const [hoveredRowId, setHoveredRowId] = useState<string | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState<{ top: number; left: number } | null>(null);

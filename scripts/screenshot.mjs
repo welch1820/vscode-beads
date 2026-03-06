@@ -21,6 +21,7 @@ const { values: args } = parseArgs({
     reload:  { type: 'boolean', default: false },
     output:  { type: 'string',  default: 'screenshots/latest.png' },
     sidebar: { type: 'string',  default: '' },
+    click:   { type: 'string',  multiple: true, default: [] },
     wait:    { type: 'string',  default: '2000' },
     url:     { type: 'string',  default: 'http://127.0.0.1:8080' },
     help:    { type: 'boolean', default: false },
@@ -33,6 +34,7 @@ if (args.help) {
   --reload         Reload the code-server window before capture
   --output PATH    Output file (default: screenshots/latest.png)
   --sidebar NAME   Click a sidebar icon by title before capture (e.g., "Beads")
+  --click TEXT     Click element containing TEXT (repeatable, executed in order with 1s delay)
   --wait MS        Wait after load/reload (default: 2000)
   --url URL        code-server URL (default: http://127.0.0.1:8080)`);
   process.exit(0);
@@ -107,6 +109,65 @@ async function main() {
       if (!clicked) {
         console.warn(`Warning: sidebar "${args.sidebar}" not found`);
       }
+      // Wait for webview iframe content to load after sidebar activation
+      await new Promise(r => setTimeout(r, 3000));
+    }
+
+    // Click elements by text content (in order), searching all frames
+    // VS Code webviews use nested iframes — must search recursively
+    async function clickByText(page, searchText) {
+      // Collect all frames containing the text
+      async function collectFrames(frame, depth = 0) {
+        const matches = [];
+        try {
+          const hasText = await frame.evaluate(
+            (s) => document.body?.textContent?.includes(s) || false, searchText
+          );
+          if (hasText) matches.push({ frame, depth });
+        } catch {}
+        for (const child of frame.childFrames()) {
+          matches.push(...await collectFrames(child, depth + 1));
+        }
+        return matches;
+      }
+
+      const frames = await collectFrames(page.mainFrame());
+      // Deepest frame first — that's where the actual webview content lives
+      frames.sort((a, b) => b.depth - a.depth);
+
+      for (const { frame } of frames) {
+        try {
+          const result = await frame.evaluate((s) => {
+            let best = null, bestLen = Infinity;
+            for (const el of document.querySelectorAll('*')) {
+              const t = el.textContent?.trim() || '';
+              if (t.includes(s) && t.length < bestLen) {
+                best = el;
+                bestLen = t.length;
+              }
+            }
+            if (best) {
+              best.click();
+              return { found: true, tag: best.tagName, text: best.textContent?.trim().slice(0, 60) };
+            }
+            return { found: false };
+          }, searchText);
+          if (result.found) return result;
+        } catch {}
+      }
+      return { found: false };
+    }
+
+    for (const text of args.click) {
+      console.log(`Clicking element containing: "${text}"`);
+      const result = await clickByText(page, text);
+      if (result.found) {
+        console.log(`  Clicked: <${result.tag}> "${result.text}"`);
+      } else {
+        console.warn(`  Warning: no element found containing "${text}"`);
+      }
+
+      await new Promise(r => setTimeout(r, 1000));
     }
 
     console.log(`Waiting ${waitMs}ms for UI to settle...`);
