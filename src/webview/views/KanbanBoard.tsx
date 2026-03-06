@@ -11,6 +11,8 @@ import { TypeIcon } from "../common/TypeIcon";
 import { PriorityBadge } from "../common/PriorityBadge";
 import { LabelBadge } from "../common/LabelBadge";
 import { Icon } from "../common/Icon";
+import { BlockedBadge } from "../common/BlockedBadge";
+import { groupByBlockers } from "../common/groupByBlockers";
 
 interface KanbanBoardProps {
   beads: Bead[];
@@ -193,23 +195,35 @@ export function KanbanBoard({ beads, selectedBeadId, onSelectBead, onUpdateBead,
     }
   }, [effectiveSortOrder, sortOrder, onSortOrderChange]);
 
-  // Group beads by status, sorted by priority then sortOrder tiebreaker
-  const grouped = COLUMNS.reduce((acc, status) => {
-    acc[status] = effectiveBeads
-      .filter((b) => b.status === status)
-      .sort((a, b) => {
-        // Closed column: most-recently-closed first
-        if (status === "closed") {
-          const aTime = a.closedAt ? new Date(a.closedAt).getTime() : 0;
-          const bTime = b.closedAt ? new Date(b.closedAt).getTime() : 0;
-          return bTime - aTime;
-        }
-        const priDiff = (a.priority ?? 2) - (b.priority ?? 2);
-        if (priDiff !== 0) return priDiff;
-        return (effectiveSortOrder[a.id] ?? 0) - (effectiveSortOrder[b.id] ?? 0);
-      });
-    return acc;
-  }, {} as Record<BeadStatus, Bead[]>);
+  // Group beads by status, sorted by priority then sortOrder tiebreaker,
+  // then apply blocker grouping so blocked beads nest under their blockers
+  const { grouped, indentLevels } = useMemo(() => {
+    const result = {} as Record<BeadStatus, Bead[]>;
+    const levels = new Map<string, number>();
+
+    for (const status of COLUMNS) {
+      const sorted = effectiveBeads
+        .filter((b) => b.status === status)
+        .sort((a, b) => {
+          if (status === "closed") {
+            const aTime = a.closedAt ? new Date(a.closedAt).getTime() : 0;
+            const bTime = b.closedAt ? new Date(b.closedAt).getTime() : 0;
+            return bTime - aTime;
+          }
+          const priDiff = (a.priority ?? 2) - (b.priority ?? 2);
+          if (priDiff !== 0) return priDiff;
+          return (effectiveSortOrder[a.id] ?? 0) - (effectiveSortOrder[b.id] ?? 0);
+        });
+
+      const groupedItems = groupByBlockers(sorted);
+      result[status] = groupedItems.map((g) => g.bead);
+      for (const g of groupedItems) {
+        levels.set(g.bead.id, g.indentLevel);
+      }
+    }
+
+    return { grouped: result, indentLevels: levels };
+  }, [effectiveBeads, effectiveSortOrder]);
 
   return (
     <div className="kanban-board">
@@ -246,7 +260,7 @@ export function KanbanBoard({ beads, selectedBeadId, onSelectBead, onUpdateBead,
                       <div className="kanban-drop-indicator" />
                     )}
                     <div
-                      className={`kanban-card ${bead.id === selectedBeadId ? "selected" : ""} ${bead.id === draggedBeadId ? "dragging" : ""}`}
+                      className={`kanban-card ${bead.id === selectedBeadId ? "selected" : ""} ${bead.id === draggedBeadId ? "dragging" : ""} ${(indentLevels.get(bead.id) ?? 0) > 0 ? "kanban-card--nested" : ""}`}
                       draggable={!!onUpdateBead}
                       onDragStart={(e) => handleDragStart(e, bead.id)}
                       onDragEnd={handleDragEnd}
@@ -260,6 +274,7 @@ export function KanbanBoard({ beads, selectedBeadId, onSelectBead, onUpdateBead,
                       <div className="kanban-card-title">{bead.title}</div>
                       <div className="kanban-card-meta">
                         {bead.priority !== undefined && <PriorityBadge priority={bead.priority} size="small" />}
+                        {bead.isBlocked && <BlockedBadge />}
                         {bead.assignee && (
                           <>
                             <Icon name="user" size={10} className="kanban-card-icon" />

@@ -11,7 +11,7 @@
 import * as vscode from "vscode";
 import { BaseViewProvider } from "./BaseViewProvider";
 import { BeadsProjectManager } from "../backend/BeadsProjectManager";
-import { WebviewToExtensionMessage, BeadStatus, issueToWebviewBead } from "../backend/types";
+import { WebviewToExtensionMessage, Bead, BeadStatus, issueToWebviewBead } from "../backend/types";
 import { Logger } from "../utils/logger";
 import { handleStartWork } from "../utils/startWork";
 
@@ -89,14 +89,27 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
     this.setError(null);
 
     try {
-      // Fetch issue and comments in parallel
-      const [issue, comments] = await Promise.all([
+      // Fetch issue, comments, all beads (for dependency picker), and blocked IDs in parallel
+      const [issue, comments, allIssues, blockedIds] = await Promise.all([
         client.show(this.currentBeadId),
         client.listComments(this.currentBeadId).catch((err) => {
           this.log.warn(`Failed to fetch comments: ${err}`);
           return [];
         }),
+        client.list({ status: "all" }).catch((err) => {
+          this.log.warn(`Failed to fetch beads list: ${err}`);
+          return [];
+        }),
+        client.blocked().catch((err) => {
+          this.log.warn(`Failed to fetch blocked IDs: ${err}`);
+          return [] as string[];
+        }),
       ]);
+      const blockedSet = new Set(blockedIds);
+
+      // Send beads list for dependency picker
+      const allBeads = (allIssues || []).map(issueToWebviewBead).filter((b): b is Bead => b !== null);
+      this.postMessage({ type: "setBeads", beads: allBeads });
 
       // Check if a newer request has started - if so, discard this stale response
       if (thisRequest !== this.loadSequence) {
@@ -115,6 +128,9 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
         };
         const bead = issueToWebviewBead(issueWithComments);
         if (bead) {
+          if (blockedSet.has(bead.id)) {
+            bead.isBlocked = true;
+          }
           this.postMessage({ type: "setBead", bead });
         } else {
           this.setError("Invalid bead status");

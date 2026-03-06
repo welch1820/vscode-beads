@@ -44,6 +44,7 @@ import {
   vscode,
 } from "../types";
 import { StatusBadge } from "../common/StatusBadge";
+import { BlockedBadge } from "../common/BlockedBadge";
 import { PriorityBadge } from "../common/PriorityBadge";
 import { TypeBadge } from "../common/TypeBadge";
 import { TypeIcon } from "../common/TypeIcon";
@@ -57,6 +58,7 @@ import { Dropdown, DropdownItem } from "../common/Dropdown";
 import { Timestamp, timestampSortingFn } from "../common/Timestamp";
 import { AutocompleteInput, AutocompleteOption } from "../common/AutocompleteInput";
 import { Markdown } from "../common/Markdown";
+import { groupByBlockers } from "../common/groupByBlockers";
 import { getLabelColorStyle } from "../utils/label-colors";
 import { useClickOutside } from "../hooks/useClickOutside";
 import { useColumnState } from "../hooks/useColumnState";
@@ -288,7 +290,12 @@ export function IssuesView({
         header: "Status",
         size: 80,
         minSize: 30,
-        cell: (info) => <StatusBadge status={info.getValue()} size="small" />,
+        cell: (info) => (
+          <>
+            <StatusBadge status={info.getValue()} size="small" />
+            {info.row.original.isBlocked && <BlockedBadge />}
+          </>
+        ),
         filterFn: (row, columnId, filterValue: BeadStatus[]) => {
           if (!filterValue || filterValue.length === 0) return true;
           return filterValue.includes(row.getValue(columnId));
@@ -568,12 +575,17 @@ export function IssuesView({
   }, [beads]);
 
   // Build dependency graph from beads for graph view
+  const filteredBeads = useMemo(
+    () => table.getFilteredRowModel().rows.map((r) => r.original),
+    [table.getFilteredRowModel().rows]
+  );
+
   const dependencyGraph = useMemo((): DependencyGraph => {
-    const nodeIds = new Set(beads.map((b) => b.id));
+    const nodeIds = new Set(filteredBeads.map((b) => b.id));
     const edgeSet = new Set<string>();
     const edges: DependencyGraph["edges"] = [];
 
-    for (const bead of beads) {
+    for (const bead of filteredBeads) {
       if (bead.dependsOn) {
         for (const dep of bead.dependsOn) {
           if (!nodeIds.has(dep.id)) continue;
@@ -604,8 +616,21 @@ export function IssuesView({
       }
     }
 
-    return { nodes: beads, edges };
-  }, [beads]);
+    return { nodes: filteredBeads, edges };
+  }, [filteredBeads]);
+
+  // Group table rows so blocked beads appear under their blockers
+  const groupedTableRows = useMemo(() => {
+    const rows = table.getRowModel().rows;
+    const beads = rows.map((r) => r.original);
+    const grouped = groupByBlockers(beads);
+    // Build a lookup from bead ID to row
+    const rowMap = new Map(rows.map((r) => [r.original.id, r]));
+    return grouped.map((g) => ({
+      row: rowMap.get(g.bead.id)!,
+      indentLevel: g.indentLevel,
+    }));
+  }, [table.getRowModel().rows]);
 
   // Get unique assignees from facets for filter menu
   const uniqueAssignees = useMemo(() => {
@@ -1057,7 +1082,7 @@ export function IssuesView({
                 ))}
               </thead>
               <tbody>
-                {table.getRowModel().rows.length === 0 ? (
+                {groupedTableRows.length === 0 ? (
                   <tr>
                     <td
                       colSpan={table.getVisibleLeafColumns().length + 1}
@@ -1067,19 +1092,22 @@ export function IssuesView({
                     </td>
                   </tr>
                 ) : (
-                  table.getRowModel().rows.map((row) => (
+                  groupedTableRows.map(({ row, indentLevel }) => (
                     <tr
                       key={row.id}
                       onClick={() => onSelectBead(row.original.id)}
-                      className={`bead-row ${row.original.id === selectedBeadId ? "selected" : ""}`}
+                      className={`bead-row ${row.original.id === selectedBeadId ? "selected" : ""} ${indentLevel > 0 ? "bead-row--nested" : ""}`}
                       onMouseEnter={(e) => handleRowMouseEnter(e, row.original.id)}
                       onMouseLeave={handleRowMouseLeave}
                     >
-                      {row.getVisibleCells().map((cell) => (
+                      {row.getVisibleCells().map((cell, cellIdx) => (
                         <td
                           key={cell.id}
                           className={`${cell.column.id}-cell`}
-                          style={{ width: cell.column.getSize() }}
+                          style={{
+                            width: cell.column.getSize(),
+                            paddingLeft: cellIdx === 0 && indentLevel > 0 ? `${indentLevel * 20 + 8}px` : undefined,
+                          }}
                         >
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
@@ -1103,7 +1131,7 @@ export function IssuesView({
       {/* Kanban Board */}
       {!error && viewMode === "board" && (
         <KanbanBoard
-          beads={table.getFilteredRowModel().rows.map((r) => r.original)}
+          beads={filteredBeads}
           selectedBeadId={selectedBeadId}
           onSelectBead={onSelectBead}
           onUpdateBead={onUpdateBead}

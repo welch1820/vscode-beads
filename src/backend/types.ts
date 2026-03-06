@@ -70,6 +70,8 @@ export interface Bead {
   // UI-specific fields (not from CLI)
   sortOrder?: number;
   statusColumn?: string;
+  isBlocked?: boolean; // Has unresolved blocking dependencies
+  blockedBy?: string[]; // IDs of beads that block this one
 }
 
 // Comment on a bead
