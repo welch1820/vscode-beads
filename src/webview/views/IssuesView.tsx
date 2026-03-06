@@ -607,12 +607,23 @@ export function IssuesView({
     [table.getFilteredRowModel().rows]
   );
 
+  // Build dependency graph directly from beads (not table model) to ensure
+  // edge data refreshes immediately when beads change after mutations.
+  // Apply the same status filter the table uses so the graph respects filters.
   const dependencyGraph = useMemo((): DependencyGraph => {
-    const nodeIds = new Set(filteredBeads.map((b) => b.id));
+    const statusFilter = columnFilters.find((f) => f.id === "status");
+    const activeStatuses = statusFilter && Array.isArray(statusFilter.value)
+      ? new Set(statusFilter.value as string[])
+      : null;
+    const graphBeads = activeStatuses
+      ? beads.filter((b) => activeStatuses.has(b.status))
+      : beads;
+
+    const nodeIds = new Set(graphBeads.map((b) => b.id));
     const edgeSet = new Set<string>();
     const edges: DependencyGraph["edges"] = [];
 
-    for (const bead of filteredBeads) {
+    for (const bead of graphBeads) {
       if (bead.dependsOn) {
         for (const dep of bead.dependsOn) {
           if (!nodeIds.has(dep.id)) continue;
@@ -643,8 +654,8 @@ export function IssuesView({
       }
     }
 
-    return { nodes: filteredBeads, edges };
-  }, [filteredBeads]);
+    return { nodes: graphBeads, edges };
+  }, [beads, columnFilters]);
 
   // Group table rows so blocked beads appear under their blockers
   const groupedTableRows = useMemo(() => {
@@ -1177,6 +1188,15 @@ export function IssuesView({
           error={null}
           highlightedBeadId={selectedBeadId}
           onSelectBead={onSelectBead}
+          onAddDependency={(sourceId, targetId, dependencyType, reverse) =>
+            vscode.postMessage({ type: "addDependency", beadId: sourceId, targetId, dependencyType, reverse })
+          }
+          onRemoveDependency={(beadId, dependsOnId) =>
+            vscode.postMessage({ type: "removeDependency", beadId, dependsOnId })
+          }
+          onReverseDependency={(removeFrom, removeTo, addFrom, addTo, depType) =>
+            vscode.postMessage({ type: "reverseDependency", removeFrom, removeTo, addFrom, addTo, depType })
+          }
         />
       )}
 
