@@ -43,6 +43,23 @@ export function KanbanBoard({ beads, selectedBeadId, onSelectBead, onUpdateBead,
   // Track which bead is being dragged
   const [draggedBeadId, setDraggedBeadId] = useState<string | null>(null);
 
+  // Clean up optimistic overrides once the backend catches up
+  useEffect(() => {
+    if (optimisticStatus.size === 0) return;
+    const resolved: string[] = [];
+    for (const [id, status] of optimisticStatus) {
+      const bead = beads.find((b) => b.id === id);
+      if (bead && bead.status === status) resolved.push(id);
+    }
+    if (resolved.length > 0) {
+      setOptimisticStatus((prev) => {
+        const next = new Map(prev);
+        for (const id of resolved) next.delete(id);
+        return next;
+      });
+    }
+  }, [beads, optimisticStatus]);
+
   // Apply optimistic status overrides to beads
   const effectiveBeads = useMemo(() => {
     if (optimisticStatus.size === 0) return beads;
@@ -50,12 +67,6 @@ export function KanbanBoard({ beads, selectedBeadId, onSelectBead, onUpdateBead,
       const statusOverride = optimisticStatus.get(bead.id);
       if (statusOverride && bead.status !== statusOverride) {
         return { ...bead, status: statusOverride };
-      } else if (statusOverride && bead.status === statusOverride) {
-        setOptimisticStatus((prev) => {
-          const next = new Map(prev);
-          next.delete(bead.id);
-          return next;
-        });
       }
       return bead;
     });
@@ -119,6 +130,9 @@ export function KanbanBoard({ beads, selectedBeadId, onSelectBead, onUpdateBead,
     // Use React state instead of dataTransfer — VS Code's sandboxed webview
     // iframe makes dataTransfer.getData() unreliable
     const beadId = draggedBeadId;
+    // Clear drag state immediately to prevent "disabled" appearance if
+    // a backend re-render arrives before the browser fires dragEnd
+    setDraggedBeadId(null);
     if (!beadId || !onUpdateBead) {
       setDropIndex(null);
       return;
