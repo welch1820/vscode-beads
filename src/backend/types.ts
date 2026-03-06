@@ -175,6 +175,7 @@ export type WebviewToExtensionMessage =
   | { type: "deleteBead"; beadId: string }
   | { type: "addDependency"; beadId: string; targetId: string; dependencyType: DependencyType; reverse: boolean }
   | { type: "removeDependency"; beadId: string; dependsOnId: string }
+  | { type: "reverseDependency"; removeFrom: string; removeTo: string; addFrom: string; addTo: string; depType: DependencyType }
   | { type: "addComment"; beadId: string; text: string }
   | { type: "openBeadDetails"; beadId: string }
   | { type: "viewInGraph"; beadId: string }
@@ -371,21 +372,21 @@ export function issueToWebviewBead(issue: {
     updatedAt: issue.updated_at,
     closedAt: issue.closed_at,
     dependsOn: issue.dependencies?.map((d) => ({
-      id: d.id,
+      id: d.id || d.depends_on_id || "",
       type: d.issue_type,
-      dependencyType: d.dependency_type as DependencyType | undefined,
+      dependencyType: (d.dependency_type || d.type) as DependencyType | undefined,
       title: d.title,
       status: d.status ? normalizeStatus(d.status) ?? undefined : undefined,
       priority: d.priority !== undefined ? normalizePriority(d.priority) : undefined,
-    })),
+    })).filter((d) => d.id !== ""),
     blocks: issue.dependents?.map((d) => ({
-      id: d.id,
+      id: d.id || d.issue_id || "",
       type: d.issue_type,
-      dependencyType: d.dependency_type as DependencyType | undefined,
+      dependencyType: (d.dependency_type || d.type) as DependencyType | undefined,
       title: d.title,
       status: d.status ? normalizeStatus(d.status) ?? undefined : undefined,
       priority: d.priority !== undefined ? normalizePriority(d.priority) : undefined,
-    })),
+    })).filter((d) => d.id !== ""),
     comments: issue.comments?.map((c) => ({
       id: c.id,
       author: c.author,

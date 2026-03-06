@@ -34,12 +34,17 @@ interface LayoutEdge {
   type: DependencyType;
 }
 
+type DropSide = "left" | "right";
+
 interface GraphViewProps {
   graph: DependencyGraph | null;
   loading: boolean;
   error: string | null;
   highlightedBeadId: string | null;
   onSelectBead: (beadId: string) => void;
+  onAddDependency?: (sourceId: string, targetId: string, dependencyType: DependencyType, reverse: boolean) => void;
+  onRemoveDependency?: (beadId: string, dependsOnId: string) => void;
+  onReverseDependency?: (removeFrom: string, removeTo: string, addFrom: string, addTo: string, depType: DependencyType) => void;
 }
 
 // ELK layout hook
@@ -132,11 +137,23 @@ function useElkLayout(graph: DependencyGraph | null) {
 function GraphNode({
   node,
   highlighted,
+  dropSide,
+  isDragSource,
   onClick,
+  onDragStart,
+  onDragOver,
+  onDragLeave,
+  onDrop,
 }: {
   node: LayoutNode;
   highlighted: boolean;
+  dropSide: DropSide | null;
+  isDragSource: boolean;
   onClick: () => void;
+  onDragStart?: () => void;
+  onDragOver?: (side: DropSide) => void;
+  onDragLeave?: () => void;
+  onDrop?: () => void;
 }) {
   const statusColor = STATUS_COLORS[node.bead.status] || "#6b7280";
   const idText = node.bead.id;
@@ -144,12 +161,20 @@ function GraphNode({
     ? node.bead.title.slice(0, 26) + "\u2026"
     : node.bead.title;
 
+  // Determine stroke for drop target feedback
+  let stroke = highlighted ? "#fbbf24" : "var(--vscode-panel-border, #3c3c3c)";
+  let strokeWidth = highlighted ? 2 : 1;
+  if (dropSide) {
+    stroke = dropSide === "left" ? "#ef4444" : "#3b82f6"; // red = blocks, blue = depends on
+    strokeWidth = 2.5;
+  }
+
   return (
     <g
-      className={`graph-node${highlighted ? " graph-node--highlighted" : ""}`}
+      className={`graph-node${highlighted ? " graph-node--highlighted" : ""}${isDragSource ? " graph-node--dragging" : ""}`}
       transform={`translate(${node.x}, ${node.y})`}
       onClick={onClick}
-      style={{ cursor: "pointer" }}
+      style={{ cursor: onDragStart ? "grab" : "pointer", opacity: isDragSource ? 0.4 : 1 }}
     >
       <rect
         width={node.width}
@@ -157,9 +182,22 @@ function GraphNode({
         rx={4}
         ry={4}
         fill="var(--vscode-editor-background, #1e1e1e)"
-        stroke={highlighted ? "#fbbf24" : "var(--vscode-panel-border, #3c3c3c)"}
-        strokeWidth={highlighted ? 2 : 1}
+        stroke={stroke}
+        strokeWidth={strokeWidth}
       />
+      {/* Left/right drop zone indicators with labels */}
+      {dropSide === "left" && (
+        <>
+          <rect x={0} y={0} width={node.width / 2} height={node.height} rx={4} fill="rgba(239,68,68,0.15)" />
+          <text x={node.width / 4} y={node.height - 4} textAnchor="middle" fill="#ef4444" fontSize={9} fontWeight="bold" pointerEvents="none">blocked by</text>
+        </>
+      )}
+      {dropSide === "right" && (
+        <>
+          <rect x={node.width / 2} y={0} width={node.width / 2} height={node.height} rx={4} fill="rgba(59,130,246,0.15)" />
+          <text x={node.width * 3 / 4} y={node.height - 4} textAnchor="middle" fill="#3b82f6" fontSize={9} fontWeight="bold" pointerEvents="none">blocks</text>
+        </>
+      )}
       {/* Status color bar */}
       <rect
         x={0}
@@ -169,7 +207,29 @@ function GraphNode({
         rx={2}
         fill={statusColor}
       />
-      <foreignObject x={8} y={4} width={node.width - 12} height={node.height - 8}>
+      {/* Invisible drag/drop interaction overlay */}
+      <rect
+        width={node.width}
+        height={node.height}
+        fill="transparent"
+        onMouseDown={(e) => {
+          if (onDragStart && e.button === 0) {
+            e.stopPropagation();
+            onDragStart();
+          }
+        }}
+        onMouseMove={(e) => {
+          if (onDragOver) {
+            const rect = (e.target as SVGRectElement).getBoundingClientRect();
+            const relX = e.clientX - rect.left;
+            const side: DropSide = relX < rect.width / 2 ? "left" : "right";
+            onDragOver(side);
+          }
+        }}
+        onMouseLeave={() => onDragLeave?.()}
+        onMouseUp={() => onDrop?.()}
+      />
+      <foreignObject x={8} y={4} width={node.width - 12} height={node.height - 8} style={{ pointerEvents: "none" }}>
         <div className="graph-node-content" style={{ fontSize: 11 }}>
           <div className="graph-node-header">
             <TypeIcon type={(node.bead.type || "task") as BeadType} size={11} />
@@ -218,7 +278,7 @@ function GraphEdge({ edge }: { edge: LayoutEdge }) {
   );
 }
 
-export function GraphView({ graph, loading, error, highlightedBeadId, onSelectBead }: GraphViewProps) {
+export function GraphView({ graph, loading, error, highlightedBeadId, onSelectBead, onAddDependency, onReverseDependency }: GraphViewProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { nodes, edges, graphWidth, graphHeight, layoutDone } = useElkLayout(graph);
@@ -230,6 +290,11 @@ export function GraphView({ graph, loading, error, highlightedBeadId, onSelectBe
   const panStart = useRef({ x: 0, y: 0, vbx: 0, vby: 0 });
   // Once the user pans or zooms, stop all automatic viewBox changes
   const userHasInteracted = useRef(false);
+
+  // Drag-to-create dependency state
+  const [dragSource, setDragSource] = useState<string | null>(null);
+  const [dragMouse, setDragMouse] = useState<{ x: number; y: number } | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ id: string; side: DropSide } | null>(null);
 
   // Wrapper that keeps the ref in sync with state
   const updateViewBox = useCallback((updater: (prev: typeof viewBoxRef.current) => typeof viewBoxRef.current) => {
@@ -302,7 +367,28 @@ export function GraphView({ graph, loading, error, highlightedBeadId, onSelectBe
     panStart.current = { x: e.clientX, y: e.clientY, vbx: viewBoxRef.current.x, vby: viewBoxRef.current.y };
   }, []);
 
+  // Convert screen coordinates to SVG viewBox coordinates using the CTM
+  // This correctly handles preserveAspectRatio letterboxing
+  const screenToSvg = useCallback((clientX: number, clientY: number) => {
+    const svg = svgRef.current;
+    if (!svg) return null;
+    const ctm = svg.getScreenCTM();
+    if (!ctm) return null;
+    const point = svg.createSVGPoint();
+    point.x = clientX;
+    point.y = clientY;
+    const svgPoint = point.matrixTransform(ctm.inverse());
+    return { x: svgPoint.x, y: svgPoint.y };
+  }, []);
+
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    // Update drag line position (SVG coordinates)
+    if (dragSource) {
+      const pt = screenToSvg(e.clientX, e.clientY);
+      if (pt) setDragMouse(pt);
+      return; // Don't pan while dragging
+    }
+
     if (!isPanning) return;
     const svg = svgRef.current;
     if (!svg) return;
@@ -316,11 +402,40 @@ export function GraphView({ graph, loading, error, highlightedBeadId, onSelectBe
       x: panStart.current.vbx - dx,
       y: panStart.current.vby - dy,
     }));
-  }, [isPanning, updateViewBox]);
+  }, [isPanning, dragSource, screenToSvg, updateViewBox]);
 
   const handleMouseUp = useCallback(() => {
+    if (dragSource && dropTarget && onAddDependency && graph) {
+      const src = dragSource;
+      const tgt = dropTarget.id;
+
+      // Desired dependency: left side = src blocks tgt (tgt depends on src)
+      //                     right side = tgt blocks src (src depends on tgt)
+      const desiredFrom = dropTarget.side === "left" ? tgt : src;
+      const desiredTo = dropTarget.side === "left" ? src : tgt;
+
+      // Check existing edges between these two nodes
+      // Graph edges: from=blocker, to=blocked. CLI: from=dependent, to=blocker.
+      // So CLI(desiredFrom, desiredTo) = graph edge(from=desiredTo, to=desiredFrom)
+      const existingForward = graph.edges.find((e) => e.from === desiredTo && e.to === desiredFrom);
+      const existingReverse = graph.edges.find((e) => e.from === desiredFrom && e.to === desiredTo);
+
+      if (existingForward) {
+        // Already exists in desired direction — no-op
+      } else if (existingReverse && onReverseDependency) {
+        // Reverse exists — atomically remove old + add new on extension side
+        // Graph edge: from=blocker, to=blocked. CLI removeDep: from=dependent, to=blocker
+        onReverseDependency(existingReverse.to, existingReverse.from, desiredFrom, desiredTo, "blocks");
+      } else {
+        // No existing edge — just add
+        onAddDependency(desiredFrom, desiredTo, "blocks", false);
+      }
+    }
+    setDragSource(null);
+    setDragMouse(null);
+    setDropTarget(null);
     setIsPanning(false);
-  }, []);
+  }, [dragSource, dropTarget, onAddDependency, onReverseDependency, graph]);
 
   // Arrow markers - memoized
   const arrowMarkers = useMemo(() => (
@@ -388,9 +503,32 @@ export function GraphView({ graph, loading, error, highlightedBeadId, onSelectBe
             key={node.id}
             node={node}
             highlighted={node.id === highlightedBeadId}
-            onClick={() => onSelectBead(node.id)}
+            dropSide={dropTarget?.id === node.id ? dropTarget.side : null}
+            isDragSource={dragSource === node.id}
+            onClick={() => { if (!dragSource) onSelectBead(node.id); }}
+            onDragStart={onAddDependency ? () => setDragSource(node.id) : undefined}
+            onDragOver={dragSource && dragSource !== node.id ? (side) => setDropTarget({ id: node.id, side }) : undefined}
+            onDragLeave={dragSource ? () => setDropTarget((prev) => prev?.id === node.id ? null : prev) : undefined}
+            onDrop={dragSource && dragSource !== node.id ? () => {} : undefined}
           />
         ))}
+        {/* Drag line from source node to cursor */}
+        {dragSource && dragMouse && (() => {
+          const sourceNode = nodes.find((n) => n.id === dragSource);
+          if (!sourceNode) return null;
+          const sx = sourceNode.x + sourceNode.width / 2;
+          const sy = sourceNode.y + sourceNode.height / 2;
+          return (
+            <line
+              x1={sx} y1={sy}
+              x2={dragMouse.x} y2={dragMouse.y}
+              stroke="#fbbf24"
+              strokeWidth={2}
+              strokeDasharray="6 3"
+              pointerEvents="none"
+            />
+          );
+        })()}
       </svg>
     </div>
   );

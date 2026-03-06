@@ -105,6 +105,49 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
         }
         break;
 
+      case "addDependency":
+        try {
+          const fromId = message.reverse ? message.targetId : message.beadId;
+          const toId = message.reverse ? message.beadId : message.targetId;
+          await client.addDependency({
+            from_id: fromId,
+            to_id: toId,
+            dep_type: message.dependencyType,
+          });
+        } catch (err) {
+          vscode.window.showErrorMessage(`Failed to add dependency: ${err}`);
+        }
+        break;
+
+      case "removeDependency":
+        try {
+          await client.removeDependency({
+            from_id: message.beadId,
+            to_id: message.dependsOnId,
+          });
+        } catch (err) {
+          vscode.window.showErrorMessage(`Failed to remove dependency: ${err}`);
+        }
+        break;
+
+      case "reverseDependency":
+        try {
+          await client.removeDependency({
+            from_id: message.removeFrom,
+            to_id: message.removeTo,
+          });
+          await client.addDependency({
+            from_id: message.addFrom,
+            to_id: message.addTo,
+            dep_type: message.depType,
+          });
+          // Force immediate refresh — fs.watch debounce may not catch both ops
+          await this.loadData();
+        } catch (err) {
+          vscode.window.showErrorMessage(`Failed to reverse dependency: ${err}`);
+        }
+        break;
+
       case "deleteBead": {
         const confirm = await vscode.window.showWarningMessage(
           `Delete bead ${message.beadId}? This cannot be undone.`,

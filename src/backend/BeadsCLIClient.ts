@@ -51,6 +51,10 @@ export interface IssueDependency {
   priority: number;
   issue_type: string;
   dependency_type: string;
+  // bd list returns raw join format with these fields instead of id/dependency_type
+  issue_id?: string;
+  depends_on_id?: string;
+  type?: string;
 }
 
 export interface CreateArgs {
