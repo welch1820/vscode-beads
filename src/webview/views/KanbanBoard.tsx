@@ -12,6 +12,7 @@ import { PriorityBadge } from "../common/PriorityBadge";
 import { LabelBadge } from "../common/LabelBadge";
 import { Icon } from "../common/Icon";
 import { BlockedBadge } from "../common/BlockedBadge";
+import { SourceBadge } from "../common/SourceBadge";
 import { groupByBlockers } from "../common/groupByBlockers";
 
 interface KanbanBoardProps {
@@ -299,7 +300,7 @@ export function KanbanBoard({ beads, selectedBeadId, onSelectBead, onUpdateBead,
                     )}
                     <div
                       className={`kanban-card ${bead.id === selectedBeadId ? "selected" : ""} ${bead.id === draggedBeadId ? "dragging" : ""} ${(indentLevels.get(bead.id) ?? 0) > 0 ? "kanban-card--nested" : ""}`}
-                      draggable={!!onUpdateBead}
+                      draggable={!!onUpdateBead && bead.source !== "bugzilla"}
                       onDragStart={(e) => handleDragStart(e, bead.id)}
                       onDragEnd={handleDragEnd}
                       onDragOver={(e) => handleCardDragOver(e, status, idx)}
@@ -308,6 +309,7 @@ export function KanbanBoard({ beads, selectedBeadId, onSelectBead, onUpdateBead,
                       <div className="kanban-card-header">
                         <TypeIcon type={(bead.type || "task") as BeadType} size={12} />
                         <span className="kanban-card-id">{bead.id}</span>
+                        <SourceBadge source={bead.source} />
                       </div>
                       <div className="kanban-card-title">{bead.title}</div>
                       <div className="kanban-card-meta">

@@ -14,6 +14,7 @@ import { BeadsProjectManager } from "../backend/BeadsProjectManager";
 import { WebviewToExtensionMessage, Bead, BeadStatus, issueToWebviewBead } from "../backend/types";
 import { Logger } from "../utils/logger";
 import { handleStartWork } from "../utils/startWork";
+import { BugzillaClient, BugzillaConfig, resolveConfig } from "../backend/BugzillaClient";
 
 export class BeadDetailsViewProvider extends BaseViewProvider {
   protected readonly viewType = "beadsDetails";
@@ -79,7 +80,19 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
       this.currentProjectId = activeProjectId || null;
     }
 
-    if (!client || !this.currentBeadId) {
+    if (!this.currentBeadId) {
+      this.postMessage({ type: "setBead", bead: null });
+      this.setLoading(false);
+      return;
+    }
+
+    // Bugzilla bugs (bz-NNN) are fetched directly from Bugzilla, not bd
+    if (this.currentBeadId.startsWith("bz-")) {
+      await this.loadBugzillaBead(thisRequest);
+      return;
+    }
+
+    if (!client) {
       this.postMessage({ type: "setBead", bead: null });
       this.setLoading(false);
       return;
@@ -156,6 +169,57 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
     }
   }
 
+  private getBugzillaConfig(): BugzillaConfig {
+    const config = vscode.workspace.getConfiguration("beads");
+    const vsCodeConfig: BugzillaConfig = {
+      url: config.get<string>("bugzilla.url", ""),
+      apiKey: config.get<string>("bugzilla.apiKey", ""),
+      username: config.get<string>("bugzilla.username", "")
+        || config.get<string>("userId", "")
+        || process.env.USER || "",
+    };
+    return resolveConfig(vsCodeConfig);
+  }
+
+  private async loadBugzillaBead(thisRequest: number): Promise<void> {
+    this.setLoading(true);
+    this.setError(null);
+
+    try {
+      const bzConfig = this.getBugzillaConfig();
+      if (!BugzillaClient.isConfigured(bzConfig)) {
+        this.setError("Bugzilla not configured");
+        this.postMessage({ type: "setBead", bead: null });
+        return;
+      }
+
+      const bugId = parseInt(this.currentBeadId!.replace("bz-", ""), 10);
+      const bead = await new BugzillaClient(bzConfig).fetchBug(bugId);
+
+      if (thisRequest !== this.loadSequence) {
+        return;
+      }
+
+      if (bead) {
+        this.currentBeadStatus = bead.status as BeadStatus ?? null;
+        this.postMessage({ type: "setBead", bead });
+      } else {
+        this.setError("Bugzilla bug not found");
+        this.postMessage({ type: "setBead", bead: null });
+      }
+    } catch (err) {
+      if (thisRequest !== this.loadSequence) {
+        return;
+      }
+      this.setError(String(err));
+      this.postMessage({ type: "setBead", bead: null });
+    } finally {
+      if (thisRequest === this.loadSequence) {
+        this.setLoading(false);
+      }
+    }
+  }
+
   protected async handleCustomMessage(
     message: WebviewToExtensionMessage
   ): Promise<void> {
@@ -206,8 +270,9 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
             if (typeof bugzillaId === "number") {
               updateArgs.set_metadata = { bugzilla_id: String(bugzillaId) };
               // Auto-populate external_ref with Bugzilla URL unless already set to something else
-              const bugzillaUrl = `https://bugzilla.startensystems.com/show_bug.cgi?id=${bugzillaId}`;
-              if (!externalRef && !rest.externalRef) {
+              const bzConfig = this.getBugzillaConfig();
+              const bugzillaUrl = bzConfig.url ? `${bzConfig.url.replace(/\/+$/, "")}/show_bug.cgi?id=${bugzillaId}` : "";
+              if (!externalRef) {
                 updateArgs.external_ref = bugzillaUrl;
               }
             } else {

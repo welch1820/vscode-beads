@@ -13,6 +13,7 @@ import * as vscode from "vscode";
 import { BaseViewProvider } from "./BaseViewProvider";
 import { BeadsProjectManager } from "../backend/BeadsProjectManager";
 import { WebviewToExtensionMessage, Bead, issueToWebviewBead } from "../backend/types";
+import { BugzillaClient, BugzillaConfig, resolveConfig } from "../backend/BugzillaClient";
 import { Logger } from "../utils/logger";
 import { handleStartWork } from "../utils/startWork";
 
@@ -36,6 +37,18 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
     this.postMessage({ type: "setSelectedBeadId", beadId });
   }
 
+  private getBugzillaConfig(): BugzillaConfig {
+    const config = vscode.workspace.getConfiguration("beads");
+    const vsCodeConfig: BugzillaConfig = {
+      url: config.get<string>("bugzilla.url", ""),
+      apiKey: config.get<string>("bugzilla.apiKey", ""),
+      username: config.get<string>("bugzilla.username", "")
+        || config.get<string>("userId", "")
+        || process.env.USER || "",
+    };
+    return resolveConfig(vsCodeConfig);
+  }
+
   protected async loadData(): Promise<void> {
     const client = this.projectManager.getClient();
     if (!client) {
@@ -47,18 +60,29 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
     this.setError(null);
 
     try {
-      const [issues, blockedByMap] = await Promise.all([
+      // Fetch beads and Bugzilla bugs in parallel
+      const bzConfig = this.getBugzillaConfig();
+      const bzPromise = BugzillaClient.isConfigured(bzConfig)
+        ? new BugzillaClient(bzConfig).fetchAssignedBugs().catch((err) => {
+            this.log.warn(`Bugzilla fetch failed: ${err}`);
+            return [] as Bead[];
+          })
+        : Promise.resolve([] as Bead[]);
+
+      const [issues, blockedByMap, bzBeads] = await Promise.all([
         client.list({ status: "all" }),
         client.blockedByMap(),
+        bzPromise,
       ]);
       const beads = issues
         .map(issueToWebviewBead)
         .filter((b): b is Bead => b !== null)
         .map((b) => {
+          b.source = "beads";
           const blockers = blockedByMap.get(b.id);
           return blockers ? { ...b, isBlocked: true, blockedBy: blockers } : b;
         });
-      this.postMessage({ type: "setBeads", beads });
+      this.postMessage({ type: "setBeads", beads: [...beads, ...bzBeads] });
     } catch (err) {
       this.setError(String(err));
       this.postMessage({ type: "setBeads", beads: [] });
@@ -78,6 +102,10 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
 
     switch (message.type) {
       case "updateBead":
+        if (message.beadId.startsWith("bz-")) {
+          vscode.window.showWarningMessage("Bugzilla bugs are read-only in this view.");
+          break;
+        }
         try {
           // Check if this is an open → in_progress transition before updating
           let wasOpen = false;
@@ -149,6 +177,10 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
         break;
 
       case "deleteBead": {
+        if (message.beadId.startsWith("bz-")) {
+          vscode.window.showWarningMessage("Bugzilla bugs cannot be deleted from this view.");
+          break;
+        }
         const confirm = await vscode.window.showWarningMessage(
           `Delete bead ${message.beadId}? This cannot be undone.`,
           { modal: true },

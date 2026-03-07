@@ -463,6 +463,22 @@ textarea {
   opacity: 0.9;
 }
 
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.source-badge--bugzilla {
+  background: #cc0000;
+  color: #fff;
+}
+
 .label-badge {
   display: inline-flex;
   align-items: center;

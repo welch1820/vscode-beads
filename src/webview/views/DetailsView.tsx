@@ -564,7 +564,7 @@ export function DetailsView({
         <div className="details-section compact">
           <h4>Bugzilla ID</h4>
           <a
-            href={`https://bugzilla.startensystems.com/show_bug.cgi?id=${displayBead.bugzillaId}`}
+            href={displayBead.externalRef || `#`}
             target="_blank"
             rel="noopener noreferrer"
             className="external-link"
