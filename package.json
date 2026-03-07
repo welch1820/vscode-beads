@@ -15,7 +15,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/jdillon/vscode-beads"
+    "url": "https://github.com/welch1820/vscode-beads"
   },
   "engines": {
     "vscode": "^1.85.0"
@@ -161,6 +161,21 @@
           "default": 1000,
           "minimum": 0,
           "description": "Delay in milliseconds before showing bead description tooltip on hover. Set to 0 to disable tooltips."
+        },
+        "beads.bugzilla.url": {
+          "type": "string",
+          "default": "",
+          "description": "Bugzilla server URL (e.g., https://bugzilla.example.com). Leave empty to disable Bugzilla integration."
+        },
+        "beads.bugzilla.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "Bugzilla API key for authentication. Generate one in Bugzilla Preferences > API Keys."
+        },
+        "beads.bugzilla.username": {
+          "type": "string",
+          "default": "",
+          "description": "Your Bugzilla email/username. Used to fetch bugs assigned to you."
         }
       }
     }

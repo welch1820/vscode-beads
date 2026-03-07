@@ -44,6 +44,7 @@ export interface Bead {
   estimatedMinutes?: number;
   externalRef?: string;
   bugzillaId?: number;
+  source?: "beads" | "bugzilla";
   createdAt?: string;
   updatedAt?: string;
   closedAt?: string;

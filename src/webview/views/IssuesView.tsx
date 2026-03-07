@@ -45,6 +45,7 @@ import {
 } from "../types";
 import { StatusBadge } from "../common/StatusBadge";
 import { BlockedBadge } from "../common/BlockedBadge";
+import { SourceBadge } from "../common/SourceBadge";
 import { PriorityBadge } from "../common/PriorityBadge";
 import { TypeBadge } from "../common/TypeBadge";
 import { TypeIcon } from "../common/TypeIcon";
@@ -309,6 +310,7 @@ export function IssuesView({
             >
               {info.row.original.id}
             </span>
+            <SourceBadge source={info.row.original.source} />
             <span className="bead-title">{info.getValue()}</span>
           </>
         ),

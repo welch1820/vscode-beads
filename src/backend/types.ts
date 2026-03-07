@@ -56,6 +56,7 @@ export interface Bead {
   estimatedMinutes?: number; // Time estimate
   externalRef?: string; // External reference e.g., "gh-9", "jira-ABC"
   bugzillaId?: number; // Bugzilla bug ID (from metadata)
+  source?: "beads" | "bugzilla"; // Where this bead came from
   createdAt?: string; // ISO/RFC3339 timestamps
   updatedAt?: string;
   closedAt?: string;
@@ -103,6 +104,10 @@ export interface DaemonBeadDependency {
   title?: string;
   status?: string;
   priority?: number;
+  // bd list returns raw join format with these fields instead of id/dependency_type
+  issue_id?: string;
+  depends_on_id?: string;
+  type?: string;
 }
 
 // Represents a Beads project (database/workspace)
