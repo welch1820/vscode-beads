@@ -5,7 +5,7 @@
 | Tool | Purpose | Install |
 |---|---|---|
 | **bun** | Package manager & script runner | `curl -fsSL https://bun.sh/install \| bash` |
-| **code** | VS Code CLI (for installing extensions) | VS Code → `Cmd+Shift+P` → "Shell Command: Install 'code' command in PATH" |
+| **code** or **cursor** | Editor CLI (for installing extensions) | VS Code → `Cmd+Shift+P` → "Shell Command: Install 'code' command in PATH"; Cursor → same with `cursor` |
 | **vsce** | VS Code extension packager | `bun add -g @vscode/vsce` |
 | **bd** | Beads CLI (runtime dependency) | See [beads](https://github.com/steveyegge/beads) |
 
@@ -24,12 +24,13 @@ Reload VS Code after install: `Cmd+Shift+P` → "Developer: Reload Window"
 `scripts/install.sh` runs the full pipeline: dependencies → compile → lint → test → package → install.
 
 ```bash
-./scripts/install.sh          # Run all steps
-./scripts/install.sh --dry    # Show steps without running them
-./scripts/install.sh --step   # Prompt before each step (skip any with 'n')
+./scripts/install.sh              # Run all steps (prompts for editor if both VS Code and Cursor found)
+./scripts/install.sh --dry        # Show steps without running them
+./scripts/install.sh --step       # Prompt before each step (skip any with 'n')
+./scripts/install.sh --editor=cursor  # Target Cursor instead of VS Code
 ```
 
-The script checks for required CLI tools upfront and exits with install instructions if any are missing.
+The script checks for required CLI tools upfront. If any are missing, it shows the install command and offers to run it for you. Works with both VS Code (`code`) and Cursor (`cursor`).
 
 ## Build Commands
 
