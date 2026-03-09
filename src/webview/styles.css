@@ -2746,6 +2746,8 @@ textarea {
   height: 100%;
   overflow: hidden;
   position: relative;
+  display: flex;
+  flex-direction: column;
 }
 
 .graph-svg {
@@ -2771,53 +2773,16 @@ textarea {
   overflow: hidden;
   font-family: var(--vscode-font-family, sans-serif);
   color: var(--vscode-foreground, #ccc);
-}
-
-.graph-node-header {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.graph-node-id {
-  font-size: 10px;
-  color: var(--vscode-descriptionForeground, #888);
-  flex-shrink: 0;
+  user-select: none;
 }
 
 .graph-node-title {
   font-size: 12px;
-  font-weight: 500;
   line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.graph-node-meta {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  color: var(--vscode-descriptionForeground, #888);
-}
-
-.graph-node-assignee {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 80px;
-}
-
-.graph-node-labels {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.graph-node-labels-more {
-  font-size: 9px;
-  opacity: 0.7;
 }
 
 .graph-edge {

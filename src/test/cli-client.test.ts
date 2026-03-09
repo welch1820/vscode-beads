@@ -94,7 +94,7 @@ describe("BeadsCLIClient", () => {
       const result = await promise;
 
       expect(lastSpawnArgs!.cmd).toBe("bd");
-      expect(lastSpawnArgs!.args).toEqual(["list", "--json"]);
+      expect(lastSpawnArgs!.args).toEqual(["list", "--json", "--flat"]);
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe("b-1");
     });
