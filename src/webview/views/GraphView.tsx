@@ -5,6 +5,9 @@ import { Loading } from "../common/Loading";
 import { PriorityBadge } from "../common/PriorityBadge";
 import { TypeIcon } from "../common/TypeIcon";
 import { LabelBadge } from "../common/LabelBadge";
+import { Icon } from "../common/Icon";
+import { BlockedBadge } from "../common/BlockedBadge";
+import { SourceBadge } from "../common/SourceBadge";
 
 // Layout constants
 const NODE_WIDTH = 220;
@@ -41,6 +44,7 @@ interface GraphViewProps {
   loading: boolean;
   error: string | null;
   highlightedBeadId: string | null;
+  filterVersion: number;
   onSelectBead: (beadId: string) => void;
   onAddDependency?: (sourceId: string, targetId: string, dependencyType: DependencyType, reverse: boolean) => void;
   onRemoveDependency?: (beadId: string, dependsOnId: string) => void;
@@ -48,12 +52,25 @@ interface GraphViewProps {
 }
 
 // ELK layout hook
+// Compute a stable fingerprint of graph structure (node IDs + edge connections)
+function graphFingerprint(graph: DependencyGraph | null): string {
+  if (!graph || graph.nodes.length === 0) return "";
+  const nodeIds = graph.nodes.map((n) => n.id).sort().join(",");
+  const edgeKeys = graph.edges.map((e) => `${e.from}->${e.to}:${e.type}`).sort().join(",");
+  return `${nodeIds}|${edgeKeys}`;
+}
+
 function useElkLayout(graph: DependencyGraph | null) {
   const [nodes, setNodes] = useState<LayoutNode[]>([]);
   const [edges, setEdges] = useState<LayoutEdge[]>([]);
   const [graphWidth, setGraphWidth] = useState(0);
   const [graphHeight, setGraphHeight] = useState(0);
   const [layoutDone, setLayoutDone] = useState(false);
+  const [layoutId, setLayoutId] = useState(0);
+
+  // Only re-layout when graph structure actually changes, not on every object reference change
+  const fingerprint = useMemo(() => graphFingerprint(graph), [graph]);
+  const prevFingerprintRef = useRef("");
 
   useEffect(() => {
     if (!graph || graph.nodes.length === 0) {
@@ -62,8 +79,21 @@ function useElkLayout(graph: DependencyGraph | null) {
       setGraphWidth(0);
       setGraphHeight(0);
       setLayoutDone(true);
+      prevFingerprintRef.current = "";
       return;
     }
+
+    // Skip re-layout if structure hasn't changed (just a data refresh)
+    if (fingerprint === prevFingerprintRef.current) {
+      // Still update bead data in existing nodes without re-running ELK
+      const beadMap = new Map<string, Bead>();
+      for (const bead of graph.nodes) beadMap.set(bead.id, bead);
+      setNodes((prev) => prev.map((n) => ({ ...n, bead: beadMap.get(n.id) || n.bead })));
+      return;
+    }
+    prevFingerprintRef.current = fingerprint;
+
+    setLayoutDone(false);
 
     const elk = new ELK();
 
@@ -123,14 +153,15 @@ function useElkLayout(graph: DependencyGraph | null) {
       setEdges(layoutEdges);
       setGraphWidth(result.width || 0);
       setGraphHeight(result.height || 0);
+      setLayoutId((prev) => prev + 1);
       setLayoutDone(true);
     }).catch((err) => {
       console.error("ELK layout failed:", err);
       setLayoutDone(true);
     });
-  }, [graph]);
+  }, [graph, fingerprint]);
 
-  return { nodes, edges, graphWidth, graphHeight, layoutDone };
+  return { nodes, edges, graphWidth, graphHeight, layoutDone, layoutId };
 }
 
 // SVG Graph Node using foreignObject for rich HTML content
@@ -157,9 +188,6 @@ function GraphNode({
 }) {
   const statusColor = STATUS_COLORS[node.bead.status] || "#6b7280";
   const idText = node.bead.id;
-  const title = node.bead.title.length > 28
-    ? node.bead.title.slice(0, 26) + "\u2026"
-    : node.bead.title;
 
   // Determine stroke for drop target feedback
   let stroke = highlighted ? "#fbbf24" : "var(--vscode-panel-border, #3c3c3c)";
@@ -230,28 +258,33 @@ function GraphNode({
         onMouseUp={() => onDrop?.()}
       />
       <foreignObject x={8} y={4} width={node.width - 12} height={node.height - 8} style={{ pointerEvents: "none" }}>
-        <div className="graph-node-content" style={{ fontSize: 11 }}>
-          <div className="graph-node-header">
-            <TypeIcon type={(node.bead.type || "task") as BeadType} size={11} />
-            <span className="graph-node-id">{idText}</span>
-            {node.bead.priority !== undefined && (
-              <PriorityBadge priority={node.bead.priority} size="small" />
-            )}
+        <div className="graph-node-content">
+          <div className="kanban-card-header">
+            <TypeIcon type={(node.bead.type || "task") as BeadType} size={12} />
+            <span className="kanban-card-id">{idText}</span>
+            <SourceBadge source={node.bead.source} />
           </div>
-          <div className="graph-node-title">{title}</div>
-          <div className="graph-node-meta">
+          <div className="graph-node-title">{node.bead.title}</div>
+          <div className="kanban-card-meta">
+            {node.bead.priority !== undefined && <PriorityBadge priority={node.bead.priority} size="small" />}
+            {node.bead.isBlocked && <BlockedBadge />}
             {node.bead.assignee && (
-              <span className="graph-node-assignee">{node.bead.assignee}</span>
+              <>
+                <Icon name="user" size={10} className="kanban-card-icon" />
+                <span className="kanban-card-assignee">{node.bead.assignee}</span>
+              </>
             )}
             {node.bead.labels && node.bead.labels.length > 0 && (
-              <span className="graph-node-labels">
+              <>
+                <span className="kanban-card-spacer" />
+                <Icon name="tag" size={10} className="kanban-card-icon" />
                 {node.bead.labels.slice(0, 2).map((label) => (
                   <LabelBadge key={label} label={label} />
                 ))}
                 {node.bead.labels.length > 2 && (
-                  <span className="graph-node-labels-more">+{node.bead.labels.length - 2}</span>
+                  <span className="kanban-card-labels-more">+{node.bead.labels.length - 2}</span>
                 )}
-              </span>
+              </>
             )}
           </div>
         </div>
@@ -278,10 +311,11 @@ function GraphEdge({ edge }: { edge: LayoutEdge }) {
   );
 }
 
-export function GraphView({ graph, loading, error, highlightedBeadId, onSelectBead, onAddDependency, onReverseDependency }: GraphViewProps) {
+export function GraphView({ graph, loading, error, highlightedBeadId, filterVersion, onSelectBead, onAddDependency, onReverseDependency }: GraphViewProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const { nodes, edges, graphWidth, graphHeight, layoutDone } = useElkLayout(graph);
+
+  const { nodes, edges, graphWidth, graphHeight, layoutDone, layoutId } = useElkLayout(graph);
 
   // ViewBox state for zoom/pan
   const viewBoxRef = useRef({ x: 0, y: 0, w: 800, h: 600 });
@@ -305,21 +339,19 @@ export function GraphView({ graph, loading, error, highlightedBeadId, onSelectBe
     });
   }, []);
 
-  // Auto-fit viewbox on first layout, and when graph identity changes
-  const graphNodeIds = useMemo(() => graph?.nodes.map((n) => n.id).sort().join(",") ?? "", [graph]);
-  const prevGraphNodeIds = useRef("");
+  // Auto-fit viewbox when filters change or layout completes with new structure
+  // Track both filterVersion and layoutId to handle the race where filter changes
+  // trigger an ELK re-layout — the fit must wait for ELK to finish with new dimensions.
+  const fittedRef = useRef({ filterVersion: -1, layoutId: -1 });
   useEffect(() => {
     if (!layoutDone || nodes.length === 0) return;
-    // Only auto-fit on first layout or when graph identity changes
-    const graphChanged = prevGraphNodeIds.current !== graphNodeIds;
-    if (prevGraphNodeIds.current !== "" && !graphChanged) return;
-    prevGraphNodeIds.current = graphNodeIds;
-    if (userHasInteracted.current && !graphChanged) return;
-    if (graphChanged) userHasInteracted.current = false;
+    if (fittedRef.current.filterVersion === filterVersion && fittedRef.current.layoutId === layoutId) return;
+    fittedRef.current = { filterVersion, layoutId };
+    userHasInteracted.current = false;
     const w = graphWidth + PADDING * 2;
     const h = graphHeight + PADDING * 2;
     updateViewBox(() => ({ x: -PADDING, y: -PADDING, w, h }));
-  }, [layoutDone, graphWidth, graphHeight, graphNodeIds, nodes.length, updateViewBox]);
+  }, [layoutDone, filterVersion, layoutId, graphWidth, graphHeight, nodes.length, updateViewBox]);
 
   // Center on highlighted bead only when the highlighted ID changes and user hasn't panned
   const prevHighlightedId = useRef<string | null>(null);

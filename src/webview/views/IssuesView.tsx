@@ -96,13 +96,16 @@ interface FilterPreset {
   id: string;
   label: string;
   statuses: BeadStatus[];
+  /** Relationship-based filter applied after status filtering */
+  relationship?: "blocked" | "blocking";
 }
 
 const FILTER_PRESETS: FilterPreset[] = [
   { id: "all", label: "All", statuses: [] },
   { id: "not-closed", label: "Not Closed", statuses: ["open", "in_progress", "blocked"] },
   { id: "active", label: "Active", statuses: ["in_progress", "blocked"] },
-  { id: "blocked", label: "Blocked", statuses: ["blocked"] },
+  { id: "blocked", label: "Blocked", statuses: [], relationship: "blocked" },
+  { id: "blocking", label: "Blocking", statuses: [], relationship: "blocking" },
   { id: "closed", label: "Closed", statuses: ["closed"] },
 ];
 
@@ -155,6 +158,13 @@ export function IssuesView({
   // UI state
   const [viewMode, setViewMode] = useState<"table" | "board" | "graph">("table");
   const [activePreset, setActivePreset] = useState<string>("not-closed");
+  const [relationshipFilter, setRelationshipFilter] = useState<"blocked" | "blocking" | null>(null);
+  // Increments on any filter change so GraphView can auto-fit
+  const filterVersionRef = useRef(0);
+  const filterVersion = useMemo(() => {
+    filterVersionRef.current += 1;
+    return filterVersionRef.current;
+  }, [columnFilters, globalFilter, relationshipFilter]);
   const [filterBarOpen, setFilterBarOpen] = useState(true);
   const [filterMenuOpen, setFilterMenuOpen] = useState<string | null>(null);
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
@@ -453,7 +463,7 @@ export function IssuesView({
   const typeFilter = (columnFilters.find((f) => f.id === "type")?.value || []) as string[];
   const assigneeFilter = (columnFilters.find((f) => f.id === "assignee")?.value || []) as string[];
   const labelFilter = (columnFilters.find((f) => f.id === "labels")?.value || []) as string[];
-  const hasActiveFilters = statusFilter.length > 0 || priorityFilter.length > 0 || typeFilter.length > 0 || assigneeFilter.length > 0 || labelFilter.length > 0;
+  const hasActiveFilters = statusFilter.length > 0 || priorityFilter.length > 0 || typeFilter.length > 0 || assigneeFilter.length > 0 || labelFilter.length > 0 || relationshipFilter !== null;
 
   const applyPreset = (presetId: string) => {
     const preset = FILTER_PRESETS.find((p) => p.id === presetId);
@@ -463,6 +473,7 @@ export function IssuesView({
           .filter((f) => f.id !== "status")
           .concat(preset.statuses.length > 0 ? [{ id: "status", value: preset.statuses }] : [])
       );
+      setRelationshipFilter(preset.relationship ?? null);
       setActivePreset(presetId);
     }
   };
@@ -473,6 +484,7 @@ export function IssuesView({
         const others = prev.filter((f) => f.id !== "status");
         return [...others, { id: "status", value: [...statusFilter, status] }];
       });
+      setRelationshipFilter(null);
       setActivePreset("");
     }
     setFilterMenuOpen(null);
@@ -486,6 +498,7 @@ export function IssuesView({
         ? [...others, { id: "status", value: newStatuses }]
         : others;
     });
+    setRelationshipFilter(null);
     setActivePreset("");
   };
 
@@ -580,11 +593,9 @@ export function IssuesView({
   const clearAllFilters = () => {
     setColumnFilters([]);
     setGlobalFilter("");
+    setRelationshipFilter(null);
     setActivePreset("all");
   };
-
-  const filteredCount = table.getFilteredRowModel().rows.length;
-  const totalCount = beads.length;
 
   // Get faceted counts for filters (counts based on OTHER active filters, not this column)
   const statusFacets = table.getColumn("status")?.getFacetedUniqueValues() ?? new Map();
@@ -603,24 +614,65 @@ export function IssuesView({
     return counts;
   }, [beads]);
 
+  // IDs of beads that block other beads (used by "Blocking" filter)
+  const blockingIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const bead of beads) {
+      if (bead.blockedBy) {
+        for (const id of bead.blockedBy) ids.add(id);
+      }
+    }
+    return ids;
+  }, [beads]);
+
+  // IDs of beads that are blocked by dependencies (used by "Blocked" filter)
+  const blockedIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const bead of beads) {
+      if (bead.isBlocked) ids.add(bead.id);
+    }
+    return ids;
+  }, [beads]);
+
   // Build dependency graph from beads for graph view
-  const filteredBeads = useMemo(
-    () => table.getFilteredRowModel().rows.map((r) => r.original),
-    [table.getFilteredRowModel().rows]
-  );
+  const filteredBeads = useMemo(() => {
+    const rows = table.getFilteredRowModel().rows.map((r) => r.original);
+    if (relationshipFilter === "blocking") {
+      return rows.filter((b) => blockingIds.has(b.id));
+    }
+    if (relationshipFilter === "blocked") {
+      return rows.filter((b) => blockedIds.has(b.id));
+    }
+    return rows;
+  }, [table.getFilteredRowModel().rows, relationshipFilter, blockingIds, blockedIds]);
 
-  // Build dependency graph directly from beads (not table model) to ensure
-  // edge data refreshes immediately when beads change after mutations.
-  // Apply the same status filter the table uses so the graph respects filters.
+  const filteredCount = filteredBeads.length;
+  const totalCount = beads.length;
+
+  // Build dependency graph from filtered beads. For relationship filters
+  // (blocked/blocking), include connected beads for context in the graph.
   const dependencyGraph = useMemo((): DependencyGraph => {
-    const statusFilter = columnFilters.find((f) => f.id === "status");
-    const activeStatuses = statusFilter && Array.isArray(statusFilter.value)
-      ? new Set(statusFilter.value as string[])
-      : null;
-    const graphBeads = activeStatuses
-      ? beads.filter((b) => activeStatuses.has(b.status))
-      : beads;
+    const beadMap = new Map(beads.map((b) => [b.id, b]));
+    const primaryIds = new Set(filteredBeads.map((b) => b.id));
 
+    // For relationship filters, add connected beads so edges remain visible
+    const graphIds = new Set(primaryIds);
+    if (relationshipFilter) {
+      for (const bead of filteredBeads) {
+        if (bead.dependsOn) {
+          for (const dep of bead.dependsOn) {
+            if (beadMap.has(dep.id)) graphIds.add(dep.id);
+          }
+        }
+        if (bead.blocks) {
+          for (const dep of bead.blocks) {
+            if (beadMap.has(dep.id)) graphIds.add(dep.id);
+          }
+        }
+      }
+    }
+
+    const graphBeads = [...graphIds].map((id) => beadMap.get(id)!).filter(Boolean);
     const nodeIds = new Set(graphBeads.map((b) => b.id));
     const edgeSet = new Set<string>();
     const edges: DependencyGraph["edges"] = [];
@@ -657,20 +709,25 @@ export function IssuesView({
     }
 
     return { nodes: graphBeads, edges };
-  }, [beads, columnFilters]);
+  }, [beads, filteredBeads, relationshipFilter]);
 
   // Group table rows so blocked beads appear under their blockers
   const groupedTableRows = useMemo(() => {
-    const rows = table.getRowModel().rows;
-    const beads = rows.map((r) => r.original);
-    const grouped = groupByBlockers(beads);
+    let rows = table.getRowModel().rows;
+    if (relationshipFilter === "blocking") {
+      rows = rows.filter((r) => blockingIds.has(r.original.id));
+    } else if (relationshipFilter === "blocked") {
+      rows = rows.filter((r) => blockedIds.has(r.original.id));
+    }
+    const beadList = rows.map((r) => r.original);
+    const grouped = groupByBlockers(beadList);
     // Build a lookup from bead ID to row
     const rowMap = new Map(rows.map((r) => [r.original.id, r]));
     return grouped.map((g) => ({
       row: rowMap.get(g.bead.id)!,
       indentLevel: g.indentLevel,
     }));
-  }, [table.getRowModel().rows]);
+  }, [table.getRowModel().rows, relationshipFilter, blockingIds, blockedIds]);
 
   // Get unique assignees from facets for filter menu
   const uniqueAssignees = useMemo(() => {
@@ -822,6 +879,14 @@ export function IssuesView({
           </Dropdown>
 
           {/* Active filter chips */}
+          {relationshipFilter && (
+            <FilterChip
+              key={`relationship-${relationshipFilter}`}
+              label={relationshipFilter === "blocking" ? "Blocking" : "Blocked"}
+              accentColor="var(--vscode-charts-red)"
+              onRemove={() => { setRelationshipFilter(null); setActivePreset(""); }}
+            />
+          )}
           {statusFilter.map((status) => (
             <FilterChip
               key={`status-${status}`}
@@ -1186,6 +1251,7 @@ export function IssuesView({
       {!error && viewMode === "graph" && (
         <GraphView
           graph={dependencyGraph}
+          filterVersion={filterVersion}
           loading={loading}
           error={null}
           highlightedBeadId={selectedBeadId}
