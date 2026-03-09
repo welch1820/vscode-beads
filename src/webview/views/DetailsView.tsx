@@ -165,6 +165,134 @@ const PRIORITY_OPTIONS: ColoredSelectOption<BeadPriority>[] = ([0, 1, 2, 3, 4] a
   textColor: p === 2 ? "#1a1a1a" : "#ffffff", // dark text on yellow
 }));
 
+/**
+ * Assignee dropdown with search/autocomplete.
+ * Shows all known assignees when focused, filters as you type.
+ */
+function AssigneeDropdown({
+  assignee,
+  userId,
+  knownAssignees,
+  onAssign,
+}: {
+  assignee?: string;
+  userId: string;
+  knownAssignees: string[];
+  onAssign: (value: string) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Close on click outside
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setSearch("");
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  // Close on window blur
+  useEffect(() => {
+    const handler = () => { setOpen(false); setSearch(""); };
+    window.addEventListener("blur", handler);
+    return () => window.removeEventListener("blur", handler);
+  }, []);
+
+  const handleSelect = (value: string) => {
+    onAssign(value);
+    setOpen(false);
+    setSearch("");
+  };
+
+  const query = search.toLowerCase();
+  const filtered = knownAssignees
+    .filter((a) => a !== assignee)
+    .filter((a) => !query || a.toLowerCase().includes(query));
+
+  const exactMatch = knownAssignees.some((a) => a.toLowerCase() === query);
+
+  return (
+    <div className="dropdown assignee-menu" ref={wrapperRef}>
+      <button
+        className="dropdown-trigger assignee-menu-trigger"
+        onClick={() => {
+          setOpen(!open);
+          if (!open) {
+            setTimeout(() => inputRef.current?.focus(), 0);
+          }
+        }}
+      >
+        <span className="assignee-trigger">
+          <Icon name="user" size={10} className="person-icon" />
+          <span className={`assignee-name ${!assignee ? "muted" : ""}`}>
+            {assignee || "Unassigned"}
+          </span>
+        </span>
+      </button>
+
+      {open && (
+        <div className="dropdown-menu assignee-search-menu">
+          <div className="assignee-search-row">
+            <input
+              ref={inputRef}
+              type="text"
+              className="assignee-search-input"
+              placeholder="Search or type a name…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Enter" && search.trim()) {
+                  handleSelect(search.trim());
+                } else if (e.key === "Escape") {
+                  setOpen(false);
+                  setSearch("");
+                }
+              }}
+            />
+          </div>
+          {!search && userId && assignee !== userId && (
+            <button className="dropdown-item" onClick={() => handleSelect(userId)}>
+              Assign to me
+            </button>
+          )}
+          {!search && assignee && (
+            <button className="dropdown-item" onClick={() => handleSelect("")}>
+              Unassign
+            </button>
+          )}
+          {!search && (userId || assignee) && filtered.length > 0 && (
+            <div className="dropdown-divider" />
+          )}
+          <div className="assignee-results">
+            {filtered.map((a) => (
+              <button key={a} className="dropdown-item" onClick={() => handleSelect(a)}>
+                {a}
+              </button>
+            ))}
+          </div>
+          {search.trim() && !exactMatch && (
+            <>
+              {filtered.length > 0 && <div className="dropdown-divider" />}
+              <button className="dropdown-item assignee-custom" onClick={() => handleSelect(search.trim())}>
+                Set as &ldquo;{search.trim()}&rdquo;
+              </button>
+            </>
+          )}
+          {search.trim() && filtered.length === 0 && exactMatch && null}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface DetailsViewProps {
   bead: Bead | null;
   allBeads?: Bead[];
@@ -214,7 +342,6 @@ export function DetailsView({
   const [editingField, setEditingField] = useState<string | null>(null);
   const [editingValue, setEditingValue] = useState("");
   const [newLabel, setNewLabel] = useState("");
-  const [customAssignee, setCustomAssignee] = useState("");
   const [newDepOptionIndex, setNewDepOptionIndex] = useState(0); // Index into DEPENDENCY_TYPE_OPTIONS
   const [depPickerOpen, setDepPickerOpen] = useState(false);
   const [depSearchQuery, setDepSearchQuery] = useState("");
@@ -462,58 +589,12 @@ export function DetailsView({
           showChevron={false}
         />
         {displayBead.isBlocked && <BlockedBadge />}
-        <Dropdown
-          trigger={
-            <span className="assignee-trigger">
-              <Icon name="user" size={10} className="person-icon" />
-              <span className={`assignee-name ${!displayBead.assignee ? "muted" : ""}`}>
-                {displayBead.assignee || "Unassigned"}
-              </span>
-            </span>
-          }
-          className="assignee-menu"
-          triggerClassName="assignee-menu-trigger"
-          showChevron={false}
-        >
-          {userId && displayBead.assignee !== userId && (
-            <DropdownItem onClick={() => handleInlineUpdate("assignee", userId)}>
-              Assign to me
-            </DropdownItem>
-          )}
-          {displayBead.assignee && (
-            <DropdownItem onClick={() => handleInlineUpdate("assignee", "")}>
-              Unassign
-            </DropdownItem>
-          )}
-          {knownAssignees.length > 0 && (userId || displayBead.assignee) && (
-            <div className="dropdown-divider" />
-          )}
-          {knownAssignees
-            .filter((a) => a !== displayBead.assignee)
-            .map((a) => (
-              <DropdownItem key={a} onClick={() => handleInlineUpdate("assignee", a)}>
-                {a}
-              </DropdownItem>
-            ))}
-          <div className="dropdown-divider" />
-          <div className="assignee-input-row">
-            <input
-              type="text"
-              className="assignee-input"
-              placeholder="Type a name…"
-              value={customAssignee}
-              onChange={(e) => setCustomAssignee(e.target.value)}
-              onKeyDown={(e) => {
-                e.stopPropagation();
-                if (e.key === "Enter" && customAssignee.trim()) {
-                  handleInlineUpdate("assignee", customAssignee.trim());
-                  setCustomAssignee("");
-                }
-              }}
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-        </Dropdown>
+        <AssigneeDropdown
+          assignee={displayBead.assignee}
+          userId={userId}
+          knownAssignees={knownAssignees}
+          onAssign={(value) => handleInlineUpdate("assignee", value)}
+        />
         {/* Labels - always visible with add input */}
         <span className="badges-spacer" />
         <Icon name="tag" size={10} className="labels-icon" title="Labels" />

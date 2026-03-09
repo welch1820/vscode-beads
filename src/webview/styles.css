@@ -1834,14 +1834,24 @@ textarea {
   min-width: 160px;
 }
 
-.assignee-input-row {
-  padding: 4px 6px;
+.assignee-search-menu {
+  min-width: 220px;
+  max-height: 300px;
+  display: flex;
+  flex-direction: column;
 }
 
-.assignee-input {
+.assignee-search-row {
+  padding: 4px 6px;
+  position: sticky;
+  top: 0;
+  background: var(--vscode-menu-background, var(--vscode-dropdown-background));
+}
+
+.assignee-search-input {
   width: 100%;
   box-sizing: border-box;
-  padding: 3px 6px;
+  padding: 4px 6px;
   font-size: 12px;
   background: var(--vscode-input-background);
   color: var(--vscode-input-foreground);
@@ -1850,12 +1860,22 @@ textarea {
   outline: none;
 }
 
-.assignee-input:focus {
+.assignee-search-input:focus {
   border-color: var(--vscode-focusBorder);
 }
 
-.assignee-input::placeholder {
+.assignee-search-input::placeholder {
   color: var(--vscode-input-placeholderForeground);
+}
+
+.assignee-results {
+  overflow-y: auto;
+  max-height: 200px;
+}
+
+.assignee-custom {
+  font-style: italic;
+  opacity: 0.85;
 }
 
 .dropdown-divider {
