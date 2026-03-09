@@ -202,18 +202,23 @@ for i in "${!TOOLS[@]}"; do
 
       echo -e "  ${DIM}→ ${install_cmd}${RESET}"
       if eval "$install_cmd"; then
-        # Re-source shell profile so new tool is on PATH
-        # shellcheck disable=SC1090
-        [ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null || true
-        [ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null || true
-        export PATH="$HOME/.bun/bin:$PATH"  # bun installer adds here
+        # Refresh PATH: source shell profile to pick up whatever the
+        # installer added (bun, mise, nvm, etc. all modify rc files).
+        # Run in a subshell to isolate side effects, extract just PATH.
+        new_path="$(bash -lc 'echo "$PATH"' 2>/dev/null || true)"
+        [ -n "$new_path" ] && export PATH="$new_path"
+        # Also add bun's global bin dir (where 'bun add -g' puts binaries)
+        if command -v bun >/dev/null 2>&1; then
+          bun_global_bin="$(bun pm bin -g 2>/dev/null || true)"
+          [ -n "$bun_global_bin" ] && export PATH="$bun_global_bin:$PATH"
+        fi
 
         if command -v "$cmd" >/dev/null 2>&1; then
           version=$("$cmd" --version 2>/dev/null | head -1)
           echo -e "  ${GREEN}✓${RESET} $cmd installed ${DIM}($version)${RESET}"
         else
           echo -e "  ${RED}✗${RESET} $cmd still not found after install"
-          echo -e "  You may need to restart your shell. Then re-run this script."
+          echo -e "  Restart your shell (exec \$SHELL), then re-run this script."
           exit 1
         fi
       else
