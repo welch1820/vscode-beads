@@ -168,6 +168,9 @@ export function IssuesView({
   const [filterBarOpen, setFilterBarOpen] = useState(true);
   const [filterMenuOpen, setFilterMenuOpen] = useState<string | null>(null);
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
+  // Epic view state (board mode only)
+  const [epicViewEnabled, setEpicViewEnabled] = useState(false);
+  const [selectedEpicIds, setSelectedEpicIds] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const filterMenuRef = useRef<HTMLDivElement>(null);
   const columnMenuRef = useRef<HTMLTableCellElement>(null);
@@ -1046,6 +1049,33 @@ export function IssuesView({
               Clear
             </button>
           )}
+
+          {/* Epic toggle — board mode only */}
+          {viewMode === "board" && (
+            <>
+              <span className="filter-bar-separator" />
+              <button
+                className={`kanban-epic-toggle ${epicViewEnabled ? "active" : ""}`}
+                onClick={() => {
+                  setEpicViewEnabled((v) => !v);
+                  if (epicViewEnabled) setSelectedEpicIds(new Set());
+                }}
+                title={epicViewEnabled ? "Hide epic column" : "Show epic column"}
+              >
+                <TypeIcon type="epic" size={12} />
+                <span>Epics</span>
+              </button>
+              {epicViewEnabled && selectedEpicIds.size > 0 && (
+                <button
+                  className="kanban-epic-clear"
+                  onClick={() => setSelectedEpicIds(new Set())}
+                  title="Clear epic selection"
+                >
+                  Clear
+                </button>
+              )}
+            </>
+          )}
         </div>
       )}
 
@@ -1237,6 +1267,7 @@ export function IssuesView({
       {!error && viewMode === "board" && (
         <KanbanBoard
           beads={filteredBeads}
+          allBeads={beads}
           selectedBeadId={selectedBeadId}
           onSelectBead={onSelectBead}
           onUpdateBead={onUpdateBead}
@@ -1244,6 +1275,9 @@ export function IssuesView({
           unfilteredCounts={unfilteredStatusCounts}
           sortOrder={kanbanSortOrder}
           onSortOrderChange={setKanbanSortOrder}
+          epicViewEnabled={epicViewEnabled}
+          selectedEpicIds={selectedEpicIds}
+          onSelectedEpicIdsChange={setSelectedEpicIds}
         />
       )}
 

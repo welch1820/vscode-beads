@@ -2502,6 +2502,91 @@ textarea {
 
 /* ==================== Kanban Board ==================== */
 
+.kanban-wrapper {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.filter-bar-separator {
+  width: 1px;
+  height: 16px;
+  background: var(--vscode-panel-border);
+  margin: 0 var(--spacing-xs);
+  flex-shrink: 0;
+}
+
+.kanban-epic-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: var(--border-radius);
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+}
+
+.kanban-epic-toggle:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.kanban-epic-toggle.active {
+  background: #9333ea22;
+  border-color: #9333ea;
+  color: #9333ea;
+}
+
+.kanban-epic-clear {
+  padding: 2px 6px;
+  font-size: 10px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: var(--border-radius);
+  background: transparent;
+  color: var(--vscode-descriptionForeground);
+  cursor: pointer;
+}
+
+.kanban-epic-clear:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+
+/* Epic column */
+.kanban-column--epic {
+  flex: 0 0 200px;
+  min-width: 200px;
+  max-width: 200px;
+}
+
+.kanban-card--epic {
+  cursor: pointer;
+}
+
+.kanban-card--epic.selected {
+  outline: 2px solid #9333ea;
+  background: #9333ea18;
+}
+
+.kanban-card--epic.focused {
+  box-shadow: 0 0 0 1px var(--vscode-focusBorder);
+}
+
+.kanban-epic-status {
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  text-transform: uppercase;
+}
+
+.kanban-epic-child-count {
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  margin-left: auto;
+}
+
 .kanban-board {
   display: flex;
   gap: var(--spacing-sm);
