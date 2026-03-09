@@ -280,7 +280,7 @@ export class BeadsCLIClient extends EventEmitter {
   // ── Queries ──────────────────────────────────────────────────────
 
   async list(args: ListArgs = {}): Promise<Issue[]> {
-    const cmd = ["list", "--json"];
+    const cmd = ["list", "--json", "--flat"];
     if (args.status) { cmd.push(`--status=${args.status}`); }
     if (args.priority !== undefined) { cmd.push(`--priority=${args.priority}`); }
     if (args.assignee) { cmd.push(`--assignee=${args.assignee}`); }
@@ -290,7 +290,17 @@ export class BeadsCLIClient extends EventEmitter {
     }
     if (args.limit) { cmd.push(`--limit=${args.limit}`); }
     const result = await this.execBd(cmd);
-    return (result as Issue[]) ?? [];
+    if (Array.isArray(result)) {
+      return result as Issue[];
+    }
+    // Some bd versions wrap the array in an object (e.g., { issues: [...] })
+    if (result && typeof result === "object" && !Array.isArray(result)) {
+      const obj = result as Record<string, unknown>;
+      for (const val of Object.values(obj)) {
+        if (Array.isArray(val)) return val as Issue[];
+      }
+    }
+    return [];
   }
 
   async show(id: string): Promise<Issue | null> {
@@ -315,7 +325,7 @@ export class BeadsCLIClient extends EventEmitter {
     if (args.priority !== undefined) { cmd.push(`--priority=${args.priority}`); }
     if (args.limit) { cmd.push(`--limit=${args.limit}`); }
     const result = await this.execBd(cmd);
-    return (result as Issue[]) ?? [];
+    return Array.isArray(result) ? (result as Issue[]) : [];
   }
 
   async blocked(): Promise<string[]> {
