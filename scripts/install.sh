@@ -91,15 +91,21 @@ detect_editor() {
   fi
 
   if [ "$has_code" = "1" ] && [ "$has_cursor" = "1" ]; then
-    echo -e "${BOLD}Both VS Code and Cursor detected. Which editor?${RESET}"
-    echo "  1) VS Code  (code)"
-    echo "  2) Cursor   (cursor)"
-    printf "  Choose [1/2]: "
-    read -r choice </dev/tty
-    case "$choice" in
-      2|cursor) EDITOR_CLI="cursor"; EDITOR_NAME="Cursor" ;;
-      *)        EDITOR_CLI="code";   EDITOR_NAME="VS Code" ;;
-    esac
+    if [ "$MODE" = "dry" ]; then
+      # Default to code in dry mode — no prompts
+      EDITOR_CLI="code"
+      EDITOR_NAME="VS Code"
+    else
+      echo -e "${BOLD}Both VS Code and Cursor detected. Which editor?${RESET}"
+      echo "  1) VS Code  (code)"
+      echo "  2) Cursor   (cursor)"
+      printf "  Choose [1/2]: "
+      read -r choice </dev/tty
+      case "$choice" in
+        2|cursor) EDITOR_CLI="cursor"; EDITOR_NAME="Cursor" ;;
+        *)        EDITOR_CLI="code";   EDITOR_NAME="VS Code" ;;
+      esac
+    fi
   elif [ "$has_cursor" = "1" ]; then
     EDITOR_CLI="cursor"
     EDITOR_NAME="Cursor"
@@ -147,6 +153,10 @@ for i in "${!TOOLS[@]}"; do
   # Special case: "code or cursor" means neither was found
   if [ "$cmd" = "code or cursor" ]; then
     echo -e "  ${RED}✗${RESET} No editor CLI found (code or cursor)"
+    if [ "$MODE" = "dry" ]; then
+      echo -e "  ${DIM}(would need: VS Code or Cursor CLI on PATH)${RESET}"
+      continue
+    fi
     echo -e "  ${YELLOW}Manual install required:${RESET}"
     echo -e "  Install VS Code (https://code.visualstudio.com) or Cursor (https://cursor.com)"
     echo -e "  Then install the CLI: Cmd+Shift+P → 'Install ... command in PATH'"
@@ -159,6 +169,13 @@ for i in "${!TOOLS[@]}"; do
     echo -e "  ${GREEN}✓${RESET} $cmd ${DIM}($version)${RESET}"
   else
     echo -e "  ${RED}✗${RESET} $cmd not found"
+
+    # In dry mode, just report and continue — no prompts
+    if [ "$MODE" = "dry" ]; then
+      echo -e "  ${DIM}(would install: ${INSTALL_CMDS[$i]:-manual})${RESET}"
+      continue
+    fi
+
     install_cmd="${INSTALL_CMDS[$i]}"
     install_steps="${INSTALL_STEPS[$i]}"
 
@@ -235,12 +252,16 @@ run_step "Package VSIX" \
 
 # Find the VSIX (most recently created)
 vsix=$(ls -t "$PROJECT_DIR"/vscode-beads-*.vsix 2>/dev/null | head -1)
-if [ -z "$vsix" ]; then
+if [ -z "$vsix" ] && [ "$MODE" != "dry" ]; then
   echo -e "\n${RED}No .vsix file found after packaging.${RESET}"
   exit 1
 fi
+vsix="${vsix:-vscode-beads-*.vsix}"  # fallback for dry mode display
 
-run_step "Install extension into $EDITOR_NAME" \
-  "$EDITOR_CLI --install-extension '$vsix' --force"
+editor_label="${EDITOR_NAME:-VS Code/Cursor}"
+editor_cmd="${EDITOR_CLI:-code}"
 
-echo -e "\n${GREEN}${BOLD}Done.${RESET} Reload $EDITOR_NAME to activate: ${DIM}Cmd+Shift+P → Developer: Reload Window${RESET}"
+run_step "Install extension into $editor_label" \
+  "$editor_cmd --install-extension '$vsix' --force"
+
+echo -e "\n${GREEN}${BOLD}Done.${RESET} Reload $editor_label to activate: ${DIM}Cmd+Shift+P → Developer: Reload Window${RESET}"
