@@ -33,8 +33,8 @@ interface KanbanBoardProps {
 const COLUMNS: BeadStatus[] = ["open", "in_progress", "blocked", "closed"];
 
 export function KanbanBoard({ beads, selectedBeadId, onSelectBead, onUpdateBead, hasActiveFilters, unfilteredCounts, sortOrder = {}, onSortOrderChange }: KanbanBoardProps): React.ReactElement {
-  // Track which columns are collapsed (closed is collapsed by default)
-  const [collapsedColumns, setCollapsedColumns] = useState<Set<BeadStatus>>(new Set(["closed"]));
+  // Track which columns are collapsed (blocked is collapsed by default since no beads use status:blocked)
+  const [collapsedColumns, setCollapsedColumns] = useState<Set<BeadStatus>>(new Set(["blocked"]));
   // Track which column is being dragged over
   const [dragOverColumn, setDragOverColumn] = useState<BeadStatus | null>(null);
   // Track drop position within a column (index where card would be inserted)
