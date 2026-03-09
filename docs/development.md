@@ -1,23 +1,45 @@
 # Development
 
-## Beads Setup (Issue Tracking)
+## Prerequisites
 
-After cloning, initialize beads with the protected branch workflow:
+| Tool | Purpose | Install |
+|---|---|---|
+| **bun** | Package manager & script runner | `curl -fsSL https://bun.sh/install \| bash` |
+| **code** | VS Code CLI (for installing extensions) | VS Code → `Cmd+Shift+P` → "Shell Command: Install 'code' command in PATH" |
+| **vsce** | VS Code extension packager | `bun add -g @vscode/vsce` |
+| **bd** | Beads CLI (runtime dependency) | See [beads](https://github.com/steveyegge/beads) |
+
+## Quick Start
 
 ```bash
-bd init --branch beads-metadata && bd hooks install
+git clone <repo-url> && cd vscode-beads
+bun install
+./scripts/install.sh     # build → lint → test → package → install
 ```
 
-This sets up the worktree-based sync to `beads-metadata` branch. The extension handles daemon lifecycle automatically.
+Reload VS Code after install: `Cmd+Shift+P` → "Developer: Reload Window"
+
+## Build & Install Script
+
+`scripts/install.sh` runs the full pipeline: dependencies → compile → lint → test → package → install.
+
+```bash
+./scripts/install.sh          # Run all steps
+./scripts/install.sh --dry    # Show steps without running them
+./scripts/install.sh --step   # Prompt before each step (skip any with 'n')
+```
+
+The script checks for required CLI tools upfront and exits with install instructions if any are missing.
 
 ## Build Commands
 
 ```bash
 bun install              # Install dependencies
 bun run compile          # Build extension + webview
+bun run compile:quiet    # Build (quiet output)
 bun run watch            # Watch mode (extension + webview in parallel)
 bun run lint             # ESLint on src/**/*.{ts,tsx}
-bun run test             # Jest tests
+bun run test             # Jest tests (experimental VM modules)
 bun run package          # Create VSIX package
 ```
 
@@ -39,9 +61,21 @@ rm ~/.vscode/extensions/vscode-beads
 
 **Option 3: Install VSIX locally**
 ```bash
+./scripts/install.sh
+# Or manually:
 bun run package
-code --install-extension vscode-beads-*.vsix
+code --install-extension vscode-beads-*.vsix --force
 ```
+
+## Beads Setup (Issue Tracking)
+
+After cloning, initialize beads for the project:
+
+```bash
+bd init
+```
+
+The extension auto-discovers `.beads/` directories in workspace folders. Issue data is stored in Dolt (`dolt/` subdirectory) and gitignored.
 
 ## Releasing
 
