@@ -162,6 +162,16 @@
           "minimum": 0,
           "description": "Delay in milliseconds before showing bead description tooltip on hover. Set to 0 to disable tooltips."
         },
+        "beads.gitlab.url": {
+          "type": "string",
+          "default": "",
+          "description": "GitLab instance URL (e.g., https://gitlab.com). Leave empty to skip GitLab team member discovery."
+        },
+        "beads.gitlab.token": {
+          "type": "string",
+          "default": "",
+          "description": "GitLab personal access token with read_api scope. Used to fetch project members for the assignee dropdown."
+        },
         "beads.bugzilla.url": {
           "type": "string",
           "default": "",

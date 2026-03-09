@@ -68,6 +68,36 @@ bun run package
 code --install-extension vscode-beads-*.vsix --force
 ```
 
+## Edit → Rebuild → Reload Cycle
+
+After making code changes, rebuild and reinstall the extension:
+
+```bash
+./scripts/install.sh                  # Full rebuild + reinstall (recommended)
+```
+
+Then reload your editor: `Cmd+Shift+P` → "Developer: Reload Window"
+
+For faster iteration, you can run individual steps:
+
+```bash
+bun run compile:quiet                 # Rebuild only (no lint/test/package)
+bun run package                       # Package VSIX
+code --install-extension vscode-beads-*.vsix --force   # or: cursor --install-extension ...
+```
+
+Or use watch mode to auto-rebuild on save (no reinstall needed with F5 debug host):
+
+```bash
+bun run watch                         # Watches extension + webview in parallel
+# Press F5 in VS Code to launch Extension Development Host
+# Cmd+R to reload the host after changes
+```
+
+**Tip:** If you only changed webview code (React components, styles), `Cmd+R` in
+the Extension Development Host is enough — no reinstall needed. Extension-side
+changes (providers, backend) require a full reload.
+
 ## Beads Setup (Issue Tracking)
 
 After cloning, initialize beads for the project:

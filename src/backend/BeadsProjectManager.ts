@@ -12,10 +12,12 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as fs from "fs";
 import * as crypto from "crypto";
-import { execFile } from "child_process";
 import { BeadsProject } from "./types";
 import { BeadsCLIClient, MutationEvent } from "./BeadsCLIClient";
 import { Logger } from "../utils/logger";
+import { TeamMemberService } from "./team/TeamMemberService";
+import { GitLabTeamProvider } from "./team/GitLabTeamProvider";
+import { GitLogTeamProvider } from "./team/GitLogTeamProvider";
 
 const ACTIVE_PROJECT_KEY = "beads.activeProjectId";
 
@@ -25,7 +27,7 @@ export class BeadsProjectManager implements vscode.Disposable {
   private client: BeadsCLIClient | null = null;
   private log: Logger;
   private context: vscode.ExtensionContext;
-  private teamMembersCache: string[] | null = null;
+  private teamService: TeamMemberService;
 
   private readonly _onProjectsChanged = new vscode.EventEmitter<BeadsProject[]>();
   public readonly onProjectsChanged = this._onProjectsChanged.event;
@@ -42,6 +44,19 @@ export class BeadsProjectManager implements vscode.Disposable {
   constructor(context: vscode.ExtensionContext, logger: Logger) {
     this.context = context;
     this.log = logger.child("ProjectManager");
+    this.teamService = new TeamMemberService(logger);
+
+    // Register providers in priority order: GitLab first, git log as fallback
+    this.teamService.addProvider(
+      new GitLabTeamProvider(() => {
+        const config = vscode.workspace.getConfiguration("beads.gitlab");
+        return {
+          url: config.get<string>("url", ""),
+          token: config.get<string>("token", ""),
+        };
+      })
+    );
+    this.teamService.addProvider(new GitLogTeamProvider());
   }
 
   /**
@@ -175,7 +190,7 @@ export class BeadsProjectManager implements vscode.Disposable {
     }
 
     this.activeProject = project;
-    this.teamMembersCache = null; // Invalidate on project switch
+    this.teamService.invalidate();
 
     // Save selection to workspace state
     await this.context.workspaceState.update(ACTIVE_PROJECT_KEY, project.id);
@@ -320,69 +335,15 @@ export class BeadsProjectManager implements vscode.Disposable {
   }
 
   /**
-   * Returns a merged, deduplicated list of team members from:
-   * 1. Git commit history (author emails)
-   * 2. bd config team.members
-   * Results are cached per project activation.
+   * Returns team members via provider chain (GitLab, git log, etc.)
+   * with persistent file cache in .beads/team-members.json.
    */
   async getTeamMembers(): Promise<string[]> {
-    if (this.teamMembersCache) {
-      return this.teamMembersCache;
-    }
-
-    const members = new Set<string>();
-    const rootPath = this.activeProject?.rootPath;
-    if (!rootPath) {
+    const project = this.activeProject;
+    if (!project) {
       return [];
     }
-
-    // Source 1: Git commit authors (emails)
-    try {
-      const gitEmails = await this.execSimple("git", ["log", "--format=%aE", "--all"], rootPath);
-      for (const email of gitEmails.split("\n")) {
-        const trimmed = email.trim().toLowerCase();
-        if (trimmed) {
-          members.add(trimmed);
-        }
-      }
-    } catch (err) {
-      this.log.debug(`Git history unavailable: ${err}`);
-    }
-
-    // Source 2: bd config team.members
-    try {
-      const configResult = await this.execSimple("bd", ["config", "get", "team.members"], rootPath);
-      const trimmed = configResult.trim();
-      if (trimmed) {
-        for (const member of trimmed.split(",")) {
-          const m = member.trim();
-          if (m) {
-            members.add(m);
-          }
-        }
-      }
-    } catch {
-      // team.members not configured — that's fine
-    }
-
-    this.teamMembersCache = Array.from(members).sort();
-    this.log.info(`Team members discovered: ${this.teamMembersCache.length}`);
-    return this.teamMembersCache;
-  }
-
-  /**
-   * Runs a command and returns stdout as a string
-   */
-  private execSimple(cmd: string, args: string[], cwd: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-      execFile(cmd, args, { cwd, timeout: 10000 }, (err, stdout, stderr) => {
-        if (err) {
-          reject(new Error(stderr?.trim() || err.message));
-        } else {
-          resolve(stdout);
-        }
-      });
-    });
+    return this.teamService.getMembers(project.beadsDir, project.rootPath);
   }
 
   dispose(): void {

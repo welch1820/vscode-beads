@@ -253,6 +253,13 @@ export abstract class BaseViewProvider implements vscode.WebviewViewProvider {
     const projects = this.projectManager.getProjects();
     this.postMessage({ type: "setProjects", projects });
 
+    // Re-send team members (may have changed if project switched)
+    this.projectManager.getTeamMembers().then((members) => {
+      this.postMessage({ type: "setTeamMembers", members });
+    }).catch((err) => {
+      this.log.debug(`Failed to load team members: ${err}`);
+    });
+
     this.loadData().catch((err) => {
       this.log.error(`Unhandled error in loadData: ${err}`);
     });
