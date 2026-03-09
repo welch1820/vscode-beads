@@ -3,9 +3,10 @@
 # install.sh — Build, lint, package, and install vscode-beads
 #
 # Usage:
-#   ./scripts/install.sh          # Run all steps
-#   ./scripts/install.sh --dry    # Show steps without running them
-#   ./scripts/install.sh --step   # Prompt before each step
+#   ./scripts/install.sh              # Run all steps
+#   ./scripts/install.sh --dry        # Show steps without running them
+#   ./scripts/install.sh --step       # Prompt before each step
+#   ./scripts/install.sh --editor X   # Skip editor prompt (code or cursor)
 #
 set -euo pipefail
 
@@ -20,14 +21,19 @@ else
 fi
 
 MODE="run"  # run | dry | step
+EDITOR_CLI=""  # set by --editor or auto-detected
+EDITOR_NAME="" # human-readable name
+
 for arg in "$@"; do
   case "$arg" in
     --dry)  MODE="dry" ;;
     --step) MODE="step" ;;
+    --editor=*) EDITOR_CLI="${arg#--editor=}" ;;
     -h|--help)
-      echo "Usage: $0 [--dry | --step]"
-      echo "  --dry   Show steps without running them"
-      echo "  --step  Prompt before each step"
+      echo "Usage: $0 [--dry | --step | --editor=code|cursor]"
+      echo "  --dry          Show steps without running them"
+      echo "  --step         Prompt before each step"
+      echo "  --editor=X     Target editor: code or cursor (skip prompt)"
       exit 0
       ;;
     *) echo "Unknown flag: $arg"; exit 1 ;;
@@ -64,35 +70,151 @@ run_step() {
   fi
 }
 
-# --- Preflight: check required tools ---
+# --- Detect target editor ---
 
-echo -e "${BOLD}Checking prerequisites...${RESET}"
+detect_editor() {
+  local has_code has_cursor
+  has_code=$(command -v code >/dev/null 2>&1 && echo 1 || echo 0)
+  has_cursor=$(command -v cursor >/dev/null 2>&1 && echo 1 || echo 0)
 
-missing=()
+  if [ -n "$EDITOR_CLI" ]; then
+    # User specified --editor
+    case "$EDITOR_CLI" in
+      code)   EDITOR_NAME="VS Code" ;;
+      cursor) EDITOR_NAME="Cursor" ;;
+      *)
+        echo -e "${RED}Unknown editor: $EDITOR_CLI (expected 'code' or 'cursor')${RESET}"
+        exit 1
+        ;;
+    esac
+    return
+  fi
 
-check_tool() {
-  local cmd="$1" install_hint="$2"
-  if command -v "$cmd" >/dev/null 2>&1; then
-    local version
-    version=$("$cmd" --version 2>/dev/null | head -1)
-    echo -e "  ${GREEN}✓${RESET} $cmd ${DIM}($version)${RESET}"
+  if [ "$has_code" = "1" ] && [ "$has_cursor" = "1" ]; then
+    echo -e "${BOLD}Both VS Code and Cursor detected. Which editor?${RESET}"
+    echo "  1) VS Code  (code)"
+    echo "  2) Cursor   (cursor)"
+    printf "  Choose [1/2]: "
+    read -r choice </dev/tty
+    case "$choice" in
+      2|cursor) EDITOR_CLI="cursor"; EDITOR_NAME="Cursor" ;;
+      *)        EDITOR_CLI="code";   EDITOR_NAME="VS Code" ;;
+    esac
+  elif [ "$has_cursor" = "1" ]; then
+    EDITOR_CLI="cursor"
+    EDITOR_NAME="Cursor"
+  elif [ "$has_code" = "1" ]; then
+    EDITOR_CLI="code"
+    EDITOR_NAME="VS Code"
   else
-    echo -e "  ${RED}✗${RESET} $cmd — $install_hint"
-    missing+=("$cmd")
+    EDITOR_CLI=""  # neither found — handled in preflight
+    EDITOR_NAME=""
   fi
 }
 
-check_tool "bun"  "Install: curl -fsSL https://bun.sh/install | bash"
-check_tool "code" "Install VS Code, then: Shell Command: Install 'code' command in PATH"
-check_tool "vsce" "Install: bun add -g @vscode/vsce"
+detect_editor
 
-if [ ${#missing[@]} -gt 0 ]; then
-  echo -e "\n${RED}Missing tools: ${missing[*]}${RESET}"
-  echo "Install them and re-run this script."
-  exit 1
+# --- Preflight: check required tools ---
+
+echo -e "\n${BOLD}Checking prerequisites...${RESET}"
+
+# Build the tool list dynamically based on detected editor
+TOOLS=("bun")
+INSTALL_CMDS=("curl -fsSL https://bun.sh/install | bash")
+INSTALL_STEPS=("Run: curl -fsSL https://bun.sh/install | bash")
+
+# Editor CLI (code or cursor)
+if [ -n "$EDITOR_CLI" ]; then
+  TOOLS+=("$EDITOR_CLI")
+else
+  # Neither found — require one
+  TOOLS+=("code or cursor")
+fi
+INSTALL_CMDS+=("")  # manual install for editors
+if [ "$EDITOR_CLI" = "cursor" ] || [ -z "$EDITOR_CLI" ]; then
+  INSTALL_STEPS+=("1. Install Cursor from https://cursor.com\n  2. Open Cursor → Cmd+Shift+P → 'Install cursor command in PATH'")
+else
+  INSTALL_STEPS+=("1. Install VS Code from https://code.visualstudio.com\n  2. Open VS Code → Cmd+Shift+P → 'Shell Command: Install code command in PATH'")
 fi
 
-# --- Steps ---
+TOOLS+=("vsce")
+INSTALL_CMDS+=("bun add -g @vscode/vsce")
+INSTALL_STEPS+=("Run: bun add -g @vscode/vsce")
+
+for i in "${!TOOLS[@]}"; do
+  cmd="${TOOLS[$i]}"
+
+  # Special case: "code or cursor" means neither was found
+  if [ "$cmd" = "code or cursor" ]; then
+    echo -e "  ${RED}✗${RESET} No editor CLI found (code or cursor)"
+    echo -e "  ${YELLOW}Manual install required:${RESET}"
+    echo -e "  Install VS Code (https://code.visualstudio.com) or Cursor (https://cursor.com)"
+    echo -e "  Then install the CLI: Cmd+Shift+P → 'Install ... command in PATH'"
+    echo -e "\nInstall an editor CLI, then re-run this script."
+    exit 1
+  fi
+
+  if command -v "$cmd" >/dev/null 2>&1; then
+    version=$("$cmd" --version 2>/dev/null | head -1)
+    echo -e "  ${GREEN}✓${RESET} $cmd ${DIM}($version)${RESET}"
+  else
+    echo -e "  ${RED}✗${RESET} $cmd not found"
+    install_cmd="${INSTALL_CMDS[$i]}"
+    install_steps="${INSTALL_STEPS[$i]}"
+
+    if [ -n "$install_cmd" ]; then
+      echo -e "  To install: ${DIM}${install_cmd}${RESET}"
+      printf "  Run this now? [Y/n] "
+      read -r answer </dev/tty
+      case "$answer" in
+        n|N|no|No)
+          # User declined — collect remaining missing tools and exit
+          manual_steps=()
+          for j in $(seq "$i" $((${#TOOLS[@]} - 1))); do
+            if ! command -v "${TOOLS[$j]}" >/dev/null 2>&1; then
+              manual_steps+=("${TOOLS[$j]}: ${INSTALL_STEPS[$j]}")
+            fi
+          done
+          echo -e "\n${YELLOW}Install these tools manually, then re-run this script:${RESET}"
+          for step in "${manual_steps[@]}"; do
+            echo -e "  $step"
+          done
+          exit 1
+          ;;
+      esac
+
+      echo -e "  ${DIM}→ ${install_cmd}${RESET}"
+      if eval "$install_cmd"; then
+        # Re-source shell profile so new tool is on PATH
+        # shellcheck disable=SC1090
+        [ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc" 2>/dev/null || true
+        [ -f "$HOME/.zshrc" ] && source "$HOME/.zshrc" 2>/dev/null || true
+        export PATH="$HOME/.bun/bin:$PATH"  # bun installer adds here
+
+        if command -v "$cmd" >/dev/null 2>&1; then
+          version=$("$cmd" --version 2>/dev/null | head -1)
+          echo -e "  ${GREEN}✓${RESET} $cmd installed ${DIM}($version)${RESET}"
+        else
+          echo -e "  ${RED}✗${RESET} $cmd still not found after install"
+          echo -e "  You may need to restart your shell. Then re-run this script."
+          exit 1
+        fi
+      else
+        echo -e "  ${RED}✗ Install command failed${RESET}"
+        echo -e "  Manual steps: ${install_steps}"
+        exit 1
+      fi
+    else
+      # No auto-install available — must be manual
+      echo -e "  ${YELLOW}Manual install required:${RESET}"
+      echo -e "  $install_steps"
+      echo -e "\nInstall $cmd, then re-run this script."
+      exit 1
+    fi
+  fi
+done
+
+# --- Build steps ---
 
 cd "$PROJECT_DIR"
 
@@ -118,7 +240,7 @@ if [ -z "$vsix" ]; then
   exit 1
 fi
 
-run_step "Install extension" \
-  "code --install-extension '$vsix' --force"
+run_step "Install extension into $EDITOR_NAME" \
+  "$EDITOR_CLI --install-extension '$vsix' --force"
 
-echo -e "\n${GREEN}${BOLD}Done.${RESET} Reload VS Code to activate: ${DIM}Cmd+Shift+P → Developer: Reload Window${RESET}"
+echo -e "\n${GREEN}${BOLD}Done.${RESET} Reload $EDITOR_NAME to activate: ${DIM}Cmd+Shift+P → Developer: Reload Window${RESET}"
