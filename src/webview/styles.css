@@ -872,6 +872,11 @@ textarea {
   min-height: 28px;
 }
 
+/* Epic group should not wrap independently — stays on same line */
+.filter-bar > .filter-bar-epic-group {
+  flex-wrap: nowrap;
+}
+
 /* Preset dropdown - extends generic .dropdown */
 .preset-dropdown-btn {
   gap: 4px;
@@ -2509,6 +2514,14 @@ textarea {
   min-height: 0;
 }
 
+.filter-bar-epic-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
 .filter-bar-separator {
   width: 1px;
   height: 16px;
@@ -2575,6 +2588,24 @@ textarea {
   box-shadow: 0 0 0 1px var(--vscode-focusBorder);
 }
 
+.kanban-card--epic.epic-drop-target {
+  outline: 2.5px solid #3b82f6;
+  background: rgba(59, 130, 246, 0.15);
+  position: relative;
+}
+
+.kanban-epic-drop-label {
+  position: absolute;
+  bottom: 2px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 9px;
+  font-weight: bold;
+  color: #3b82f6;
+  pointer-events: none;
+}
+
 .kanban-epic-status {
   font-size: 10px;
   color: var(--vscode-descriptionForeground);
@@ -2594,6 +2625,7 @@ textarea {
   min-height: 0;
   padding: var(--spacing-sm);
   overflow-x: auto;
+  position: relative;
 }
 
 .kanban-column {

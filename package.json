@@ -191,8 +191,9 @@
     }
   },
   "scripts": {
-    "compile": "bun run compile:extension && bun run compile:webview",
-    "compile:quiet": "bun run compile:extension:quiet && bun run compile:webview:quiet",
+    "stamp": "echo 'export const BUILD_TIMESTAMP = \"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'\";' > src/build-stamp.ts",
+    "compile": "bun run stamp && bun run compile:extension && bun run compile:webview",
+    "compile:quiet": "bun run stamp && bun run compile:extension:quiet && bun run compile:webview:quiet",
     "compile:extension": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18",
     "compile:extension:quiet": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --target=node18 --log-level=error",
     "compile:webview": "esbuild src/webview/index.tsx --bundle --outfile=dist/webview/main.js --format=iife --platform=browser --target=es2020 --loader:.tsx=tsx --loader:.ts=ts --loader:.css=css --loader:.svg=text --define:process.env.NODE_ENV=\\\"production\\\"",

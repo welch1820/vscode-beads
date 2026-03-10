@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useMemo, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { Bead, BeadStatus, BeadType, STATUS_LABELS, STATUS_COLORS, TYPE_COLORS } from "../types";
 import { TypeIcon } from "../common/TypeIcon";
 import { PriorityBadge } from "../common/PriorityBadge";
@@ -36,12 +37,14 @@ interface KanbanBoardProps {
   selectedEpicIds?: Set<string>;
   /** Callback when epic selection changes */
   onSelectedEpicIdsChange?: (ids: Set<string>) => void;
+  /** Callback when a bead is dropped onto an epic (creates dependency) */
+  onAddDependency?: (sourceId: string, targetId: string, dependencyType: string, reverse: boolean) => void;
 }
 
 const ALL_COLUMNS: BeadStatus[] = ["open", "in_progress", "blocked", "closed"];
 const COLUMNS: BeadStatus[] = ["open", "in_progress", "closed"];
 
-export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onUpdateBead, hasActiveFilters, unfilteredCounts, sortOrder = {}, onSortOrderChange, epicViewEnabled = false, selectedEpicIds: selectedEpicIdsProp, onSelectedEpicIdsChange }: KanbanBoardProps): React.ReactElement {
+export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onUpdateBead, hasActiveFilters, unfilteredCounts, sortOrder = {}, onSortOrderChange, epicViewEnabled = false, selectedEpicIds: selectedEpicIdsProp, onSelectedEpicIdsChange, onAddDependency }: KanbanBoardProps): React.ReactElement {
   // Track which columns are collapsed (blocked is collapsed by default since no beads use status:blocked)
   const [collapsedColumns, setCollapsedColumns] = useState<Set<BeadStatus>>(new Set(["blocked"]));
   // Track which column is being dragged over
@@ -52,6 +55,16 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
   const [optimisticStatus, setOptimisticStatus] = useState<Map<string, BeadStatus>>(new Map());
   // Track which bead is being dragged
   const [draggedBeadId, setDraggedBeadId] = useState<string | null>(null);
+  // Track which epic card is being dragged over (for drop-onto-epic)
+  const [dragOverEpicId, setDragOverEpicId] = useState<string | null>(null);
+  // Ref preserves dragOverEpicId across dragleave→dragend race (dragleave clears state before dragend reads it)
+  const dragOverEpicIdRef = useRef<string | null>(null);
+  // Shift+drag activates epic assignment mode; plain drag moves between lanes
+  const shiftDragRef = useRef(false);
+  // Track mouse position and source card center for arrow overlay (viewport coords)
+  const [dragMousePos, setDragMousePos] = useState<{ x: number; y: number } | null>(null);
+  const [dragSourceRect, setDragSourceRect] = useState<{ x: number; y: number } | null>(null);
+  const boardRef = useRef<HTMLDivElement>(null);
   // Epic selection: use controlled props if provided, else internal state
   const [internalEpicIds, setInternalEpicIds] = useState<Set<string>>(new Set());
   const selectedEpicIds = selectedEpicIdsProp ?? internalEpicIds;
@@ -59,7 +72,7 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
 
   // Epics come from allBeads (unfiltered) so table filters don't hide them;
   // status columns use the filtered beads with epics excluded
-  const epicBeads = useMemo(() => (allBeads ?? beads).filter((b) => b.type === "epic"), [allBeads, beads]);
+  const epicBeads = useMemo(() => (allBeads ?? beads).filter((b) => b.type === "epic" && b.status !== "closed"), [allBeads, beads]);
   const nonEpicBeads = useMemo(() => beads.filter((b) => b.type !== "epic"), [beads]);
 
   // Build set of bead IDs that are children of selected epics
@@ -167,23 +180,70 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
     });
   };
 
+  // Helper: update drag mouse position in viewport coords (called from all dragOver handlers)
+  const updateDragMousePos = (e: React.DragEvent) => {
+    if (!draggedBeadId || !epicViewEnabled || !shiftDragRef.current) return;
+    setDragMousePos({ x: e.clientX, y: e.clientY });
+  };
+
   // Drag handlers
   const handleDragStart = (e: React.DragEvent, beadId: string) => {
     e.dataTransfer.setData("text/plain", beadId);
     e.dataTransfer.effectAllowed = "move";
     setDraggedBeadId(beadId);
+    shiftDragRef.current = e.shiftKey;
+
+    const card = e.currentTarget as HTMLElement;
+    const cardRect = card.getBoundingClientRect();
+
+    if (epicViewEnabled && shiftDragRef.current) {
+      // Use transparent drag image so the card stays in place (like graph view)
+      const img = new Image();
+      img.src = "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7";
+      e.dataTransfer.setDragImage(img, 0, 0);
+    } else {
+      // Clone card to document.body so it's not clipped by overflow ancestors
+      const clone = card.cloneNode(true) as HTMLElement;
+      clone.style.position = "fixed";
+      clone.style.top = "-9999px";
+      clone.style.left = "-9999px";
+      clone.style.width = `${cardRect.width}px`;
+      clone.style.zIndex = "-1";
+      document.body.appendChild(clone);
+      e.dataTransfer.setDragImage(clone, e.clientX - cardRect.left, e.clientY - cardRect.top);
+      requestAnimationFrame(() => document.body.removeChild(clone));
+    }
+
+    // Record source card center in viewport coords
+    setDragSourceRect({
+      x: cardRect.left + cardRect.width / 2,
+      y: cardRect.top + cardRect.height / 2,
+    });
   };
 
   const handleDragEnd = () => {
+    // Epic assignment only on Shift+drag
+    if (shiftDragRef.current) {
+      const epicId = dragOverEpicIdRef.current;
+      if (draggedBeadId && epicId && onAddDependency && draggedBeadId !== epicId) {
+        onAddDependency(draggedBeadId, epicId, "parent-child", false);
+      }
+    }
     setDraggedBeadId(null);
     setDropIndex(null);
     setDragOverColumn(null);
+    setDragOverEpicId(null);
+    dragOverEpicIdRef.current = null;
+    shiftDragRef.current = false;
+    setDragMousePos(null);
+    setDragSourceRect(null);
   };
 
   const handleDragOver = (e: React.DragEvent, status: BeadStatus) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     setDragOverColumn(status);
+    updateDragMousePos(e);
   };
 
   const handleDragLeave = () => {
@@ -204,6 +264,7 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
 
     setDropIndex({ column: status, index: insertIndex });
     setDragOverColumn(status);
+    updateDragMousePos(e);
   };
 
   const handleDrop = (e: React.DragEvent, newStatus: BeadStatus) => {
@@ -220,8 +281,18 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
       setDropIndex(null);
       return;
     }
-    const bead = beads.find((b) => b.id === beadId);
+    const bead = beads.find((b) => b.id === beadId) ?? epicBeads.find((b) => b.id === beadId);
     if (!bead) {
+      setDropIndex(null);
+      return;
+    }
+
+    // Epic dragged to a status column — just update status, no reorder logic
+    if (bead.type === "epic") {
+      if (bead.status !== newStatus) {
+        onUpdateBead(beadId, { status: newStatus });
+        setOptimisticStatus((prev) => new Map(prev).set(beadId, newStatus));
+      }
       setDropIndex(null);
       return;
     }
@@ -324,11 +395,32 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
 
   return (
     <div className="kanban-wrapper">
-      <div className="kanban-board">
+      <div
+        className="kanban-board"
+        ref={boardRef}
+        onDragOver={(e) => updateDragMousePos(e)}
+      >
         {epicViewEnabled && (
           <div
             className="kanban-column kanban-column--epic"
             style={{ "--column-color": TYPE_COLORS.epic } as React.CSSProperties}
+            onDragOver={(e) => {
+              if (draggedBeadId && onAddDependency && shiftDragRef.current) {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "link";
+              }
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              if (shiftDragRef.current && draggedBeadId && dragOverEpicId && onAddDependency && draggedBeadId !== dragOverEpicId) {
+                onAddDependency(draggedBeadId, dragOverEpicId, "parent-child", false);
+              }
+              setDraggedBeadId(null);
+              setDragOverEpicId(null);
+              dragOverEpicIdRef.current = null;
+              setDropIndex(null);
+              setDragOverColumn(null);
+            }}
           >
             <div className="kanban-column-header">
               <span className="kanban-column-title">epics</span>
@@ -338,7 +430,10 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
               {epicBeads.map((epic) => (
                 <div
                   key={epic.id}
-                  className={`kanban-card kanban-card--epic ${selectedEpicIds.has(epic.id) ? "selected" : ""} ${epic.id === selectedBeadId ? "focused" : ""}`}
+                  className={`kanban-card kanban-card--epic ${selectedEpicIds.has(epic.id) ? "selected" : ""} ${epic.id === selectedBeadId ? "focused" : ""} ${dragOverEpicId === epic.id ? "epic-drop-target" : ""}`}
+                  draggable={!!onUpdateBead}
+                  onDragStart={(e) => handleDragStart(e, epic.id)}
+                  onDragEnd={handleDragEnd}
                   onClick={(e) => {
                     if (e.metaKey || e.ctrlKey) {
                       // Cmd/Ctrl+click: select in detail panel
@@ -346,6 +441,32 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
                     } else {
                       toggleEpic(epic.id);
                     }
+                  }}
+                  onDragOver={(e) => {
+                    if (draggedBeadId && onAddDependency && shiftDragRef.current) {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "link";
+                      setDragOverEpicId(epic.id);
+                      dragOverEpicIdRef.current = epic.id;
+                      updateDragMousePos(e);
+                    }
+                  }}
+                  onDragLeave={() => {
+                    setDragOverEpicId((prev) => prev === epic.id ? null : prev);
+                    // Don't clear ref here — handleDragEnd needs it (dragleave fires before dragend)
+                  }}
+                  onDrop={(e) => {
+                    console.log("[epic-drop] DROP on card", epic.id, "draggedBeadId=", draggedBeadId);
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (shiftDragRef.current && draggedBeadId && onAddDependency && draggedBeadId !== epic.id) {
+                      onAddDependency(draggedBeadId, epic.id, "parent-child", false);
+                    }
+                    setDraggedBeadId(null);
+                    setDragOverEpicId(null);
+                    dragOverEpicIdRef.current = null;
+                    setDropIndex(null);
+                    setDragOverColumn(null);
                   }}
                 >
                   <div className="kanban-card-header">
@@ -361,6 +482,9 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
                       <span className="kanban-epic-child-count">{epic.blocks.length} items</span>
                     )}
                   </div>
+                  {dragOverEpicId === epic.id && (
+                    <div className="kanban-epic-drop-label">blocks</div>
+                  )}
                 </div>
               ))}
               {epicBeads.length === 0 && (
@@ -459,6 +583,24 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
           );
         })}
       </div>
+      {/* Drag line overlay: rendered via portal to escape overflow clipping from kanban-board/column-body */}
+      {draggedBeadId && epicViewEnabled && dragSourceRect && dragMousePos && createPortal(
+        <svg
+          width={window.innerWidth}
+          height={window.innerHeight}
+          viewBox={`0 0 ${window.innerWidth} ${window.innerHeight}`}
+          style={{ position: "fixed", top: 0, left: 0, pointerEvents: "none", zIndex: 10000 }}
+        >
+          <line
+            x1={dragSourceRect.x} y1={dragSourceRect.y}
+            x2={dragMousePos.x} y2={dragMousePos.y}
+            stroke={dragOverEpicId ? "#3b82f6" : "#fbbf24"}
+            strokeWidth={2}
+            strokeDasharray="6 3"
+          />
+        </svg>,
+        document.body
+      )}
     </div>
   );
 }

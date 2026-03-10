@@ -82,6 +82,21 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
           const blockers = blockedByMap.get(b.id);
           return blockers ? { ...b, isBlocked: true, blockedBy: blockers } : b;
         });
+
+      // Enrich epics with their children (bd list doesn't include dependency details)
+      const epics = beads.filter((b) => b.type === "epic");
+      if (epics.length > 0) {
+        const childResults = await Promise.all(
+          epics.map((epic) => client.listDependents(epic.id))
+        );
+        for (let i = 0; i < epics.length; i++) {
+          const children = childResults[i];
+          if (children.length > 0) {
+            epics[i].blocks = children.map((c) => ({ id: c.id, dependencyType: c.dependencyType as "parent-child" | undefined }));
+          }
+        }
+      }
+
       this.postMessage({ type: "setBeads", beads: [...beads, ...bzBeads] });
     } catch (err) {
       this.setError(String(err));
@@ -137,12 +152,17 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
         try {
           const fromId = message.reverse ? message.targetId : message.beadId;
           const toId = message.reverse ? message.beadId : message.targetId;
+          this.log.info(`addDependency: ${fromId} → ${toId} (type=${message.dependencyType}, reverse=${message.reverse})`);
           await client.addDependency({
             from_id: fromId,
             to_id: toId,
             dep_type: message.dependencyType,
           });
+          this.log.info(`addDependency: success`);
+          // Force refresh — epic children aren't in the mutation event data
+          await this.loadData();
         } catch (err) {
+          this.log.error(`addDependency: failed — ${err}`);
           vscode.window.showErrorMessage(`Failed to add dependency: ${err}`);
         }
         break;
@@ -153,6 +173,7 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
             from_id: message.beadId,
             to_id: message.dependsOnId,
           });
+          await this.loadData();
         } catch (err) {
           vscode.window.showErrorMessage(`Failed to remove dependency: ${err}`);
         }

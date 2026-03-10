@@ -13,6 +13,7 @@ import { BeadsPanelViewProvider } from "./providers/BeadsPanelViewProvider";
 import { BeadDetailsViewProvider } from "./providers/BeadDetailsViewProvider";
 import { GraphViewProvider } from "./providers/GraphViewProvider";
 import { createLogger, Logger } from "./utils/logger";
+import { BUILD_TIMESTAMP } from "./build-stamp";
 
 let log: Logger;
 let projectManager: BeadsProjectManager;
@@ -31,7 +32,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const version = ext.packageJSON.version || "unknown";
   const isDev = ext.extensionPath.includes("-dev") || !ext.extensionPath.includes(".vscode");
   const timestamp = new Date().toISOString();
-  log.info(`Activating v${version}${isDev ? " (dev)" : ""} @ ${timestamp}`);
+  log.info(`Activating v${version}${isDev ? " (dev)" : ""} @ ${timestamp} (built ${BUILD_TIMESTAMP})`);
 
   // Initialize the project manager
   projectManager = new BeadsProjectManager(context, log);

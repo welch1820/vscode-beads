@@ -169,7 +169,16 @@ export function IssuesView({
   const [filterMenuOpen, setFilterMenuOpen] = useState<string | null>(null);
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
   // Epic view state (board mode only)
-  const [epicViewEnabled, setEpicViewEnabled] = useState(false);
+  const hasOpenEpics = useMemo(() => beads.some((b) => b.type === "epic" && b.status !== "closed"), [beads]);
+  const [epicViewEnabled, setEpicViewEnabled] = useState(true);
+  // Default epic column off when no open epics (only on initial data load)
+  const epicInitRef = useRef(false);
+  useEffect(() => {
+    if (!epicInitRef.current && beads.length > 0) {
+      epicInitRef.current = true;
+      if (!hasOpenEpics) setEpicViewEnabled(false);
+    }
+  }, [beads, hasOpenEpics]);
   const [selectedEpicIds, setSelectedEpicIds] = useState<Set<string>>(new Set());
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const filterMenuRef = useRef<HTMLDivElement>(null);
@@ -1050,9 +1059,9 @@ export function IssuesView({
             </button>
           )}
 
-          {/* Epic toggle — board mode only */}
+          {/* Epic toggle — board mode only, pinned right */}
           {viewMode === "board" && (
-            <>
+            <div className="filter-bar-epic-group">
               <span className="filter-bar-separator" />
               <button
                 className={`kanban-epic-toggle ${epicViewEnabled ? "active" : ""}`}
@@ -1074,7 +1083,7 @@ export function IssuesView({
                   Clear
                 </button>
               )}
-            </>
+            </div>
           )}
         </div>
       )}
@@ -1278,6 +1287,9 @@ export function IssuesView({
           epicViewEnabled={epicViewEnabled}
           selectedEpicIds={selectedEpicIds}
           onSelectedEpicIdsChange={setSelectedEpicIds}
+          onAddDependency={(sourceId, targetId, dependencyType, reverse) =>
+            vscode.postMessage({ type: "addDependency", beadId: sourceId, targetId, dependencyType, reverse })
+          }
         />
       )}
 
