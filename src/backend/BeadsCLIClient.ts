@@ -288,7 +288,7 @@ export class BeadsCLIClient extends EventEmitter {
     if (args.labels && args.labels.length > 0) {
       for (const l of args.labels) { cmd.push(`--label=${l}`); }
     }
-    if (args.limit) { cmd.push(`--limit=${args.limit}`); }
+    cmd.push(`--limit=${args.limit ?? 0}`);
     const result = await this.execBd(cmd);
     if (Array.isArray(result)) {
       return result as Issue[];
@@ -323,7 +323,7 @@ export class BeadsCLIClient extends EventEmitter {
     const cmd = ["ready", "--json"];
     if (args.assignee) { cmd.push(`--assignee=${args.assignee}`); }
     if (args.priority !== undefined) { cmd.push(`--priority=${args.priority}`); }
-    if (args.limit) { cmd.push(`--limit=${args.limit}`); }
+    cmd.push(`--limit=${args.limit ?? 0}`);
     const result = await this.execBd(cmd);
     return Array.isArray(result) ? (result as Issue[]) : [];
   }
