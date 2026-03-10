@@ -448,6 +448,22 @@ export class BeadsCLIClient extends EventEmitter {
     await this.execBd(["delete", id, "--force"]);
   }
 
+  /** Returns IDs of beads that depend on the given bead (its "children" for parent-child deps) */
+  async listDependents(id: string): Promise<Array<{ id: string; dependencyType?: string }>> {
+    try {
+      const result = await this.execBd(["dep", "list", id, "--direction=up", "--json"]);
+      if (Array.isArray(result)) {
+        return result.map((item: { id?: string; dependency_type?: string }) => ({
+          id: item.id ?? "",
+          dependencyType: item.dependency_type,
+        })).filter((d) => d.id !== "");
+      }
+      return [];
+    } catch {
+      return [];
+    }
+  }
+
   async addDependency(args: DepAddArgs): Promise<void> {
     const cmd = ["dep", "add", args.from_id, args.to_id];
     if (args.dep_type) { cmd.push(`--type=${args.dep_type}`); }

@@ -12,3 +12,6 @@ tmp/
 
 # Local environment notes (not committed)
 CLAUDE.local.md
+
+# Generated at build time
+src/build-stamp.ts
