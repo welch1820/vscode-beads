@@ -140,15 +140,22 @@ async function main() {
           const result = await frame.evaluate((s) => {
             let best = null, bestLen = Infinity;
             for (const el of document.querySelectorAll('*')) {
+              // Match by textContent or title attribute
               const t = el.textContent?.trim() || '';
-              if (t.includes(s) && t.length < bestLen) {
-                best = el;
-                bestLen = t.length;
+              const title = el.getAttribute?.('title') || '';
+              const matchText = t.includes(s) && t.length < bestLen;
+              const matchTitle = title.includes(s);
+              if (matchText || matchTitle) {
+                const len = matchTitle ? title.length : t.length;
+                if (len < bestLen) {
+                  best = el;
+                  bestLen = len;
+                }
               }
             }
             if (best) {
               best.click();
-              return { found: true, tag: best.tagName, text: best.textContent?.trim().slice(0, 60) };
+              return { found: true, tag: best.tagName, text: best.getAttribute?.('title') || best.textContent?.trim().slice(0, 60) };
             }
             return { found: false };
           }, searchText);

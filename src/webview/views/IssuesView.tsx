@@ -1290,6 +1290,9 @@ export function IssuesView({
           onAddDependency={(sourceId, targetId, dependencyType, reverse) =>
             vscode.postMessage({ type: "addDependency", beadId: sourceId, targetId, dependencyType, reverse })
           }
+          onDeleteBead={(beadId) =>
+            vscode.postMessage({ type: "deleteBead", beadId })
+          }
         />
       )}
 
@@ -1310,6 +1313,9 @@ export function IssuesView({
           }
           onReverseDependency={(removeFrom, removeTo, addFrom, addTo, depType) =>
             vscode.postMessage({ type: "reverseDependency", removeFrom, removeTo, addFrom, addTo, depType })
+          }
+          onDeleteBead={(beadId) =>
+            vscode.postMessage({ type: "deleteBead", beadId })
           }
         />
       )}

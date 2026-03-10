@@ -2775,6 +2775,31 @@ textarea {
   margin-bottom: 2px;
 }
 
+.kanban-card-delete {
+  margin-left: auto;
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  cursor: pointer;
+  color: #fff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s, color 0.15s;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+}
+.kanban-card.selected .kanban-card-delete,
+.kanban-card.focused .kanban-card-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+.kanban-card-delete:hover {
+  opacity: 1 !important;
+  color: var(--vscode-errorForeground);
+  background: var(--vscode-toolbar-hoverBackground);
+}
+
 .kanban-card-id {
   font-size: 10px;
   font-family: var(--vscode-editor-font-family), monospace;

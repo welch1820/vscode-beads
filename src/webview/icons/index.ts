@@ -20,6 +20,7 @@ import tagSvg from "./tag.svg";
 import externalLinkSvg from "./external-link.svg";
 import banSvg from "./ban.svg";
 import notdefSvg from "./notdef.svg";
+import trashSvg from "./trash.svg";
 
 export const icons = {
   // Issue types
@@ -36,6 +37,7 @@ export const icons = {
   "external-link": externalLinkSvg,
   ban: banSvg,
   notdef: notdefSvg,
+  trash: trashSvg,
 } as const;
 
 export type IconName = keyof typeof icons;
