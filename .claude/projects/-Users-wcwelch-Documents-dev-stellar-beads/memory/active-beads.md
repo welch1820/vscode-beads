@@ -24,7 +24,16 @@
 - Epic cards accept drops\
 - Awaiting user verification
 
+## bd-wisp-ve6 (in_progress) — Trash icon on kanban cards
+- **Issue**: Trash icon shows in code-server webview but NOT in VS Code\
+- **Root cause (likely)**: Stale VSIX — code-server uses symlink (picks up latest dist/ directly), VS Code uses installed VSIX from before trash icon was added\
+- **Investigation confirmed**: SVG is in bundle (`dist/webview/main.js`), esbuild uses `--loader:.svg=text` (inlines as string), CSS is correct (opacity:0, shows on hover), `onDeleteBead` prop is wired correctly in both IssuesView and App.tsx\
+- **Fix**: Rebuild and reinstall VSIX: `bun run compile:quiet && bun run package && code --install-extension *.vsix`, then reload VS Code\
+- Pending: user rebuild + verify
+
 ## Key files modified (uncommitted)
-- `src/webview/views/KanbanBoard.tsx` — shift key tracking, epic drop handlers, drag overlay portal, transparent drag image\
-- `src/webview/views/IssuesView.tsx` — passes `onAddDependency` to KanbanBoard\
-- `src/webview/styles.css` — epic drop target styles, filter bar epic group layout
+- `src/webview/views/KanbanBoard.tsx` — shift key tracking, epic drop handlers, drag overlay portal, transparent drag image, trash button\
+- `src/webview/views/IssuesView.tsx` — passes `onAddDependency` and `onDeleteBead` to KanbanBoard\
+- `src/webview/styles.css` — epic drop target styles, filter bar epic group layout, `.kanban-card-delete` styles\
+- `src/webview/icons/trash.svg` — trash can icon (Font Awesome Free)\
+- `src/webview/icons/index.ts` — registers trash icon

@@ -49,6 +49,7 @@ interface GraphViewProps {
   onAddDependency?: (sourceId: string, targetId: string, dependencyType: DependencyType, reverse: boolean) => void;
   onRemoveDependency?: (beadId: string, dependsOnId: string) => void;
   onReverseDependency?: (removeFrom: string, removeTo: string, addFrom: string, addTo: string, depType: DependencyType) => void;
+  onDeleteBead?: (beadId: string) => void;
 }
 
 // ELK layout hook
@@ -175,6 +176,7 @@ function GraphNode({
   onDragOver,
   onDragLeave,
   onDrop,
+  onDeleteBead,
 }: {
   node: LayoutNode;
   highlighted: boolean;
@@ -185,6 +187,7 @@ function GraphNode({
   onDragOver?: (side: DropSide) => void;
   onDragLeave?: () => void;
   onDrop?: () => void;
+  onDeleteBead?: (beadId: string) => void;
 }) {
   const statusColor = STATUS_COLORS[node.bead.status] || "#6b7280";
   const idText = node.bead.id;
@@ -257,12 +260,25 @@ function GraphNode({
         onMouseLeave={() => onDragLeave?.()}
         onMouseUp={() => onDrop?.()}
       />
-      <foreignObject x={8} y={4} width={node.width - 12} height={node.height - 8} style={{ pointerEvents: "none" }}>
+      <foreignObject x={8} y={4} width={node.width - 12} height={node.height - 8} style={{ pointerEvents: highlighted ? "auto" : "none" }}>
         <div className="graph-node-content">
           <div className="kanban-card-header">
             <TypeIcon type={(node.bead.type || "task") as BeadType} size={12} />
             <span className="kanban-card-id">{idText}</span>
             <SourceBadge source={node.bead.source} />
+            {onDeleteBead && highlighted && (
+              <button
+                className="kanban-card-delete"
+                title="Delete bead"
+                style={{ opacity: 0.8, pointerEvents: "auto" }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteBead(node.bead.id);
+                }}
+              >
+                <Icon name="trash" size={14} />
+              </button>
+            )}
           </div>
           <div className="graph-node-title">{node.bead.title}</div>
           <div className="kanban-card-meta">
@@ -311,7 +327,7 @@ function GraphEdge({ edge }: { edge: LayoutEdge }) {
   );
 }
 
-export function GraphView({ graph, loading, error, highlightedBeadId, filterVersion, onSelectBead, onAddDependency, onReverseDependency }: GraphViewProps) {
+export function GraphView({ graph, loading, error, highlightedBeadId, filterVersion, onSelectBead, onAddDependency, onReverseDependency, onDeleteBead }: GraphViewProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -542,6 +558,7 @@ export function GraphView({ graph, loading, error, highlightedBeadId, filterVers
             onDragOver={dragSource && dragSource !== node.id ? (side) => setDropTarget({ id: node.id, side }) : undefined}
             onDragLeave={dragSource ? () => setDropTarget((prev) => prev?.id === node.id ? null : prev) : undefined}
             onDrop={dragSource && dragSource !== node.id ? () => {} : undefined}
+            onDeleteBead={onDeleteBead}
           />
         ))}
         {/* Drag line from source node to cursor */}

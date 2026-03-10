@@ -39,12 +39,14 @@ interface KanbanBoardProps {
   onSelectedEpicIdsChange?: (ids: Set<string>) => void;
   /** Callback when a bead is dropped onto an epic (creates dependency) */
   onAddDependency?: (sourceId: string, targetId: string, dependencyType: string, reverse: boolean) => void;
+  /** Callback to delete a bead (caller should prompt for confirmation) */
+  onDeleteBead?: (beadId: string) => void;
 }
 
 const ALL_COLUMNS: BeadStatus[] = ["open", "in_progress", "blocked", "closed"];
 const COLUMNS: BeadStatus[] = ["open", "in_progress", "closed"];
 
-export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onUpdateBead, hasActiveFilters, unfilteredCounts, sortOrder = {}, onSortOrderChange, epicViewEnabled = false, selectedEpicIds: selectedEpicIdsProp, onSelectedEpicIdsChange, onAddDependency }: KanbanBoardProps): React.ReactElement {
+export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onUpdateBead, hasActiveFilters, unfilteredCounts, sortOrder = {}, onSortOrderChange, epicViewEnabled = false, selectedEpicIds: selectedEpicIdsProp, onSelectedEpicIdsChange, onAddDependency, onDeleteBead }: KanbanBoardProps): React.ReactElement {
   // Track which columns are collapsed (blocked is collapsed by default since no beads use status:blocked)
   const [collapsedColumns, setCollapsedColumns] = useState<Set<BeadStatus>>(new Set(["blocked"]));
   // Track which column is being dragged over
@@ -563,6 +565,18 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
                     <TypeIcon type="epic" size={12} />
                     <span className="kanban-card-id">{epic.id}</span>
                     <SourceBadge source={epic.source} />
+                    {onDeleteBead && (
+                      <button
+                        className="kanban-card-delete"
+                        title="Delete bead"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteBead(epic.id);
+                        }}
+                      >
+                        <Icon name="trash" size={14} />
+                      </button>
+                    )}
                   </div>
                   <div className="kanban-card-title">{epic.title}</div>
                   <div className="kanban-card-meta">
@@ -627,6 +641,18 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
                           <TypeIcon type={(bead.type || "task") as BeadType} size={12} />
                           <span className="kanban-card-id">{bead.id}</span>
                           <SourceBadge source={bead.source} />
+                          {onDeleteBead && (
+                            <button
+                              className="kanban-card-delete"
+                              title="Delete bead"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onDeleteBead(bead.id);
+                              }}
+                            >
+                              <Icon name="trash" size={14} />
+                            </button>
+                          )}
                         </div>
                         <div className="kanban-card-title">{bead.title}</div>
                         <div className="kanban-card-meta">
