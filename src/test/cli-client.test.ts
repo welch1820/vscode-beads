@@ -94,7 +94,7 @@ describe("BeadsCLIClient", () => {
       const result = await promise;
 
       expect(lastSpawnArgs!.cmd).toBe("bd");
-      expect(lastSpawnArgs!.args).toEqual(["list", "--json", "--flat"]);
+      expect(lastSpawnArgs!.args).toEqual(["list", "--json", "--flat", "--limit=0"]);
       expect(result).toHaveLength(1);
       expect(result[0].id).toBe("b-1");
     });
@@ -190,7 +190,7 @@ describe("BeadsCLIClient", () => {
       const promise = client.ready();
       resolveWith([]);
       await promise;
-      expect(lastSpawnArgs!.args).toEqual(["ready", "--json"]);
+      expect(lastSpawnArgs!.args).toEqual(["ready", "--json", "--limit=0"]);
     });
 
     it("includes filters", async () => {
