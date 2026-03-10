@@ -55,12 +55,30 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
   const [optimisticStatus, setOptimisticStatus] = useState<Map<string, BeadStatus>>(new Map());
   // Track which bead is being dragged
   const [draggedBeadId, setDraggedBeadId] = useState<string | null>(null);
+  // Ref mirrors draggedBeadId for use in drag event handlers (state is stale in closures during drag)
+  const draggedBeadIdRef = useRef<string | null>(null);
   // Track which epic card is being dragged over (for drop-onto-epic)
   const [dragOverEpicId, setDragOverEpicId] = useState<string | null>(null);
   // Ref preserves dragOverEpicId across dragleave→dragend race (dragleave clears state before dragend reads it)
   const dragOverEpicIdRef = useRef<string | null>(null);
+  // Refs preserve dragOverColumn/dropIndex across the same dragleave→dragend race
+  // (VS Code's sandboxed webview iframe doesn't fire drop events reliably, so we handle drops in dragEnd)
+  const dragOverColumnRef = useRef<BeadStatus | null>(null);
+  const dropIndexRef = useRef<{ column: BeadStatus; index: number } | null>(null);
+  // Whether handleDrop already processed this drag (skip duplicate handling in dragEnd)
+  const dropHandledRef = useRef(false);
   // Shift+drag activates epic assignment mode; plain drag moves between lanes
   const shiftDragRef = useRef(false);
+  // Track shift key state via every event type that carries modifier info.
+  // Keyboard events alone are unreliable in VS Code webview (focus timing issues).
+  // pointermove/pointerdown fire before drag starts; dragover fires continuously during drag.
+  const shiftKeyDownRef = useRef(false);
+  useEffect(() => {
+    const track = (e: Event) => { shiftKeyDownRef.current = (e as KeyboardEvent | MouseEvent).shiftKey; };
+    const events = ["keydown", "keyup", "pointerdown", "pointermove", "dragover"] as const;
+    for (const evt of events) document.addEventListener(evt, track, true);
+    return () => { for (const evt of events) document.removeEventListener(evt, track, true); };
+  }, []);
   // Track mouse position and source card center for arrow overlay (viewport coords)
   const [dragMousePos, setDragMousePos] = useState<{ x: number; y: number } | null>(null);
   const [dragSourceRect, setDragSourceRect] = useState<{ x: number; y: number } | null>(null);
@@ -182,7 +200,12 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
 
   // Helper: update drag mouse position in viewport coords (called from all dragOver handlers)
   const updateDragMousePos = (e: React.DragEvent) => {
-    if (!draggedBeadId || !epicViewEnabled || !shiftDragRef.current) return;
+    if (!draggedBeadIdRef.current || !epicViewEnabled) return;
+    // Detect shift mid-drag (fallback for environments where dragstart misses shiftKey)
+    if (!shiftDragRef.current && (e.shiftKey || shiftKeyDownRef.current)) {
+      shiftDragRef.current = true;
+    }
+    if (!shiftDragRef.current) return;
     setDragMousePos({ x: e.clientX, y: e.clientY });
   };
 
@@ -191,7 +214,8 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
     e.dataTransfer.setData("text/plain", beadId);
     e.dataTransfer.effectAllowed = "move";
     setDraggedBeadId(beadId);
-    shiftDragRef.current = e.shiftKey;
+    draggedBeadIdRef.current = beadId;
+    shiftDragRef.current = e.shiftKey || shiftKeyDownRef.current;
 
     const card = e.currentTarget as HTMLElement;
     const cardRect = card.getBoundingClientRect();
@@ -222,16 +246,67 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
   };
 
   const handleDragEnd = () => {
-    // Epic assignment only on Shift+drag
-    if (shiftDragRef.current) {
-      const epicId = dragOverEpicIdRef.current;
-      if (draggedBeadId && epicId && onAddDependency && draggedBeadId !== epicId) {
-        onAddDependency(draggedBeadId, epicId, "parent-child", false);
+    // Use ref (not state) — state is stale in drag event closures
+    const beadId = draggedBeadIdRef.current;
+
+    // Epic assignment: check first — if dropped on an epic card, assign regardless of Shift
+    const epicId = dragOverEpicIdRef.current;
+    if (beadId && epicId && onAddDependency && beadId !== epicId) {
+      onAddDependency(beadId, epicId, "parent-child", false);
+    } else if (!dropHandledRef.current && beadId && onUpdateBead) {
+      // VS Code's sandboxed webview iframe doesn't fire drop events reliably,
+      // so we handle lane drops here using refs (same pattern as epic drops).
+      const newStatus = dragOverColumnRef.current;
+      if (newStatus) {
+        const bead = beads.find((b) => b.id === beadId) ?? epicBeads.find((b) => b.id === beadId);
+        if (bead) {
+          if (bead.type === "epic") {
+            if (bead.status !== newStatus) {
+              onUpdateBead(beadId, { status: newStatus });
+              setOptimisticStatus((prev) => new Map(prev).set(beadId!, newStatus));
+            }
+          } else {
+            const sameColumn = bead.status === newStatus;
+            const currentDropIndex = dropIndexRef.current;
+            if (sameColumn && currentDropIndex && currentDropIndex.column === newStatus) {
+              // Within-column reorder
+              const columnItems = grouped[newStatus];
+              const targetIndex = currentDropIndex.index;
+              const others = columnItems.filter((b) => b.id !== beadId);
+              const currentIndex = columnItems.findIndex((b) => b.id === beadId);
+              const adjustedIndex = currentIndex < targetIndex ? targetIndex - 1 : targetIndex;
+              const getSortOrder = (id: string) => effectiveSortOrder[id] ?? 0;
+              let newOrder: number;
+              if (others.length === 0) {
+                newOrder = 0;
+              } else if (adjustedIndex <= 0) {
+                newOrder = getSortOrder(others[0].id) - 1000;
+              } else if (adjustedIndex >= others.length) {
+                newOrder = getSortOrder(others[others.length - 1].id) + 1000;
+              } else {
+                const above = getSortOrder(others[adjustedIndex - 1].id);
+                const below = getSortOrder(others[adjustedIndex].id);
+                newOrder = (above + below) / 2;
+              }
+              if (onSortOrderChange) {
+                onSortOrderChange({ ...sortOrder, [beadId!]: newOrder });
+              }
+            } else if (!sameColumn) {
+              setOptimisticStatus((prev) => new Map(prev).set(beadId!, newStatus));
+              onUpdateBead(beadId, { status: newStatus });
+            }
+          }
+        }
       }
     }
+    // Reset all drag state
+    dropHandledRef.current = false;
     setDraggedBeadId(null);
+    draggedBeadIdRef.current = null;
     setDropIndex(null);
+    dropIndexRef.current = null;
     setDragOverColumn(null);
+    dragOverColumnRef.current = null;
     setDragOverEpicId(null);
     dragOverEpicIdRef.current = null;
     shiftDragRef.current = false;
@@ -243,6 +318,7 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     setDragOverColumn(status);
+    dragOverColumnRef.current = status;
     updateDragMousePos(e);
   };
 
@@ -262,14 +338,19 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
     const midY = rect.top + rect.height / 2;
     const insertIndex = e.clientY < midY ? index : index + 1;
 
-    setDropIndex({ column: status, index: insertIndex });
+    const di = { column: status, index: insertIndex };
+    setDropIndex(di);
+    dropIndexRef.current = di;
     setDragOverColumn(status);
+    dragOverColumnRef.current = status;
     updateDragMousePos(e);
   };
 
   const handleDrop = (e: React.DragEvent, newStatus: BeadStatus) => {
     e.preventDefault();
+    dropHandledRef.current = true;
     setDragOverColumn(null);
+    dragOverColumnRef.current = null;
 
     // Use React state instead of dataTransfer — VS Code's sandboxed webview
     // iframe makes dataTransfer.getData() unreliable
@@ -277,13 +358,16 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
     // Clear drag state immediately to prevent "disabled" appearance if
     // a backend re-render arrives before the browser fires dragEnd
     setDraggedBeadId(null);
+    draggedBeadIdRef.current = null;
     if (!beadId || !onUpdateBead) {
       setDropIndex(null);
+      dropIndexRef.current = null;
       return;
     }
     const bead = beads.find((b) => b.id === beadId) ?? epicBeads.find((b) => b.id === beadId);
     if (!bead) {
       setDropIndex(null);
+      dropIndexRef.current = null;
       return;
     }
 
@@ -334,6 +418,7 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
     }
 
     setDropIndex(null);
+    dropIndexRef.current = null;
   };
 
   // Assign initial sortOrder to cards that lack one
@@ -405,17 +490,19 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
             className="kanban-column kanban-column--epic"
             style={{ "--column-color": TYPE_COLORS.epic } as React.CSSProperties}
             onDragOver={(e) => {
-              if (draggedBeadId && onAddDependency && shiftDragRef.current) {
+              if (draggedBeadIdRef.current && onAddDependency) {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = "link";
               }
             }}
             onDrop={(e) => {
               e.preventDefault();
-              if (shiftDragRef.current && draggedBeadId && dragOverEpicId && onAddDependency && draggedBeadId !== dragOverEpicId) {
-                onAddDependency(draggedBeadId, dragOverEpicId, "parent-child", false);
+              const beadId = draggedBeadIdRef.current;
+              if (beadId && dragOverEpicId && onAddDependency && beadId !== dragOverEpicId) {
+                onAddDependency(beadId, dragOverEpicId, "parent-child", false);
               }
               setDraggedBeadId(null);
+              draggedBeadIdRef.current = null;
               setDragOverEpicId(null);
               dragOverEpicIdRef.current = null;
               setDropIndex(null);
@@ -443,7 +530,8 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
                     }
                   }}
                   onDragOver={(e) => {
-                    if (draggedBeadId && onAddDependency && shiftDragRef.current) {
+                    const beadId = draggedBeadIdRef.current;
+                    if (beadId && onAddDependency && beadId !== epic.id) {
                       e.preventDefault();
                       e.dataTransfer.dropEffect = "link";
                       setDragOverEpicId(epic.id);
@@ -456,13 +544,15 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
                     // Don't clear ref here — handleDragEnd needs it (dragleave fires before dragend)
                   }}
                   onDrop={(e) => {
-                    console.log("[epic-drop] DROP on card", epic.id, "draggedBeadId=", draggedBeadId);
                     e.preventDefault();
                     e.stopPropagation();
-                    if (shiftDragRef.current && draggedBeadId && onAddDependency && draggedBeadId !== epic.id) {
-                      onAddDependency(draggedBeadId, epic.id, "parent-child", false);
+                    const beadId = draggedBeadIdRef.current;
+                    if (beadId && onAddDependency && beadId !== epic.id) {
+                      dropHandledRef.current = true;
+                      onAddDependency(beadId, epic.id, "parent-child", false);
                     }
                     setDraggedBeadId(null);
+                    draggedBeadIdRef.current = null;
                     setDragOverEpicId(null);
                     dragOverEpicIdRef.current = null;
                     setDropIndex(null);
