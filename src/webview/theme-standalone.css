@@ -1,0 +1,82 @@
+/**
+ * Standalone light theme — provides defaults for all --vscode-* CSS variables.
+ *
+ * Only loaded in PWA mode (not in VS Code, where the editor provides these).
+ * Values match VS Code's "Light+" default theme.
+ */
+
+:root {
+  /* Base */
+  --vscode-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --vscode-font-size: 13px;
+  --vscode-foreground: #333333;
+  --vscode-descriptionForeground: #717171;
+  --vscode-errorForeground: #e51400;
+  --vscode-focusBorder: #0078d4;
+
+  /* Editor */
+  --vscode-editor-background: #ffffff;
+  --vscode-editor-font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+
+  /* Sidebar / Panels */
+  --vscode-sideBar-background: #f3f3f3;
+  --vscode-panel-border: #e5e5e5;
+  --vscode-widget-border: #e5e5e5;
+
+  /* Buttons */
+  --vscode-button-background: #0078d4;
+  --vscode-button-foreground: #ffffff;
+  --vscode-button-hoverBackground: #106ebe;
+  --vscode-button-secondaryBackground: #e5e5e5;
+  --vscode-button-secondaryForeground: #333333;
+  --vscode-button-secondaryHoverBackground: #d6d6d6;
+
+  /* Inputs */
+  --vscode-input-background: #ffffff;
+  --vscode-input-foreground: #333333;
+  --vscode-input-border: #cecece;
+  --vscode-input-placeholderForeground: #999999;
+
+  /* Dropdowns */
+  --vscode-dropdown-background: #ffffff;
+  --vscode-dropdown-foreground: #333333;
+  --vscode-dropdown-border: #cecece;
+
+  /* Lists */
+  --vscode-list-hoverBackground: #e8e8e8;
+  --vscode-list-activeSelectionBackground: #0078d4;
+  --vscode-list-activeSelectionForeground: #ffffff;
+
+  /* Badges */
+  --vscode-badge-background: #c4c4c4;
+  --vscode-badge-foreground: #333333;
+
+  /* Toolbar */
+  --vscode-toolbar-hoverBackground: #e8e8e850;
+
+  /* Menu */
+  --vscode-menu-background: #ffffff;
+
+  /* Progress */
+  --vscode-progressBar-background: #0078d4;
+
+  /* Scrollbar */
+  --vscode-scrollbarSlider-background: #64646466;
+  --vscode-scrollbarSlider-hoverBackground: #646464b3;
+  --vscode-scrollbarSlider-activeBackground: #00000099;
+
+  /* Text */
+  --vscode-textLink-foreground: #006ab1;
+  --vscode-textLink-activeForeground: #006ab1;
+  --vscode-textCodeBlock-background: #f0f0f0;
+  --vscode-textBlockQuote-border: #0078d4;
+  --vscode-textBlockQuote-foreground: #717171;
+
+  /* Testing icons */
+  --vscode-testing-iconPassed: #388a34;
+  --vscode-testing-iconFailed: #e51400;
+
+  /* Hover widget */
+  --vscode-editorHoverWidget-background: #f3f3f3;
+  --vscode-editorHoverWidget-border: #c8c8c8;
+}

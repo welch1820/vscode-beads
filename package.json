@@ -204,7 +204,10 @@
     "lint": "eslint src --ext ts,tsx",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "vscode:prepublish": "bun run compile",
-    "package": "vsce package"
+    "package": "vsce package",
+    "compile:pwa": "esbuild src/pwa/index.tsx --bundle --outfile=dist/pwa/main.js --format=iife --platform=browser --target=es2020 --loader:.tsx=tsx --loader:.ts=ts --loader:.css=css --loader:.svg=text --define:process.env.NODE_ENV=\\\"production\\\" && cp src/pwa/index.html src/pwa/manifest.json src/pwa/sw.js dist/pwa/ && sips -z 192 192 resources/icon.png --out dist/pwa/icon-192.png > /dev/null && sips -z 512 512 resources/icon.png --out dist/pwa/icon-512.png > /dev/null",
+    "pwa": "bun run stamp && bun run compile:pwa && bun run src/pwa/server.ts",
+    "pwa:dev": "bun run stamp && bun run compile:pwa && bun --watch run src/pwa/server.ts"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",

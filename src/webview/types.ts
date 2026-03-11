@@ -226,7 +226,7 @@ export function sortLabels(labels: string[] | undefined): string[] {
   return [...labels].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
 }
 
-// VS Code API interface for webview
+// VS Code API interface for webview (used by VsCodeTransport in transport.ts)
 declare global {
   interface Window {
     acquireVsCodeApi: () => {
@@ -236,5 +236,3 @@ declare global {
     };
   }
 }
-
-export const vscode = window.acquireVsCodeApi();

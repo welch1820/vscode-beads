@@ -41,8 +41,8 @@ import {
   TYPE_SORT_ORDER,
   getTypeSortOrder,
   sortLabels,
-  vscode,
 } from "../types";
+import { transport } from "../transport";
 import { StatusBadge } from "../common/StatusBadge";
 import { BlockedBadge } from "../common/BlockedBadge";
 import { SourceBadge } from "../common/SourceBadge";
@@ -464,7 +464,7 @@ export function IssuesView({
   });
 
   const handleCopyId = useCallback((beadId: string) => {
-    vscode.postMessage({ type: "copyBeadId", beadId });
+    transport.postMessage({ type: "copyBeadId", beadId });
     setCopiedId(beadId);
     setTimeout(() => setCopiedId(null), 1500);
   }, []);
@@ -1288,10 +1288,10 @@ export function IssuesView({
           selectedEpicIds={selectedEpicIds}
           onSelectedEpicIdsChange={setSelectedEpicIds}
           onAddDependency={(sourceId, targetId, dependencyType, reverse) =>
-            vscode.postMessage({ type: "addDependency", beadId: sourceId, targetId, dependencyType, reverse })
+            transport.postMessage({ type: "addDependency", beadId: sourceId, targetId, dependencyType, reverse })
           }
           onDeleteBead={(beadId) =>
-            vscode.postMessage({ type: "deleteBead", beadId })
+            transport.postMessage({ type: "deleteBead", beadId })
           }
         />
       )}
@@ -1306,16 +1306,16 @@ export function IssuesView({
           highlightedBeadId={selectedBeadId}
           onSelectBead={onSelectBead}
           onAddDependency={(sourceId, targetId, dependencyType, reverse) =>
-            vscode.postMessage({ type: "addDependency", beadId: sourceId, targetId, dependencyType, reverse })
+            transport.postMessage({ type: "addDependency", beadId: sourceId, targetId, dependencyType, reverse })
           }
           onRemoveDependency={(beadId, dependsOnId) =>
-            vscode.postMessage({ type: "removeDependency", beadId, dependsOnId })
+            transport.postMessage({ type: "removeDependency", beadId, dependsOnId })
           }
           onReverseDependency={(removeFrom, removeTo, addFrom, addTo, depType) =>
-            vscode.postMessage({ type: "reverseDependency", removeFrom, removeTo, addFrom, addTo, depType })
+            transport.postMessage({ type: "reverseDependency", removeFrom, removeTo, addFrom, addTo, depType })
           }
           onDeleteBead={(beadId) =>
-            vscode.postMessage({ type: "deleteBead", beadId })
+            transport.postMessage({ type: "deleteBead", beadId })
           }
         />
       )}

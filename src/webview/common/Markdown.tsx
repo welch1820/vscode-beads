@@ -8,7 +8,7 @@
 
 import React, { useMemo, useCallback } from "react";
 import { marked } from "marked";
-import { vscode } from "../types";
+import { transport } from "../transport";
 
 interface MarkdownProps {
   content: string;
@@ -77,7 +77,7 @@ export function Markdown({ content, className }: MarkdownProps): React.ReactElem
       e.stopPropagation();
 
       const { path, line } = parseFilePath(href);
-      vscode.postMessage({ type: "openFile", filePath: path, line });
+      transport.postMessage({ type: "openFile", filePath: path, line });
     }
     // External URLs will open normally via default browser behavior
   }, []);
