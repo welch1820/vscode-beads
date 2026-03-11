@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { SortingState, VisibilityState, ColumnOrderState } from "@tanstack/react-table";
-import { vscode } from "../types";
+import { transport } from "../transport";
 
 /**
  * Persisted column state for TanStack Table.
@@ -43,9 +43,9 @@ interface UseColumnStateReturn {
 /**
  * Hook to manage TanStack Table column state with VS Code webview persistence.
  *
- * - Loads saved state from vscode.getState() on mount
+ * - Loads saved state from transport.getState() on mount
  * - Merges with defaults for new columns
- * - Saves to vscode.setState() on changes
+ * - Saves to transport.setState() on changes
  *
  * @example
  * const {
@@ -66,7 +66,7 @@ export function useColumnState(options: UseColumnStateOptions = {}): UseColumnSt
   } = options;
 
   // Load persisted state once on mount
-  const savedState = useMemo(() => vscode.getState() as PersistedState | undefined, []);
+  const savedState = useMemo(() => transport.getState() as PersistedState | undefined, []);
 
   const [sorting, setSorting] = useState<SortingState>(
     savedState?.sorting ?? defaultSorting
@@ -86,7 +86,7 @@ export function useColumnState(options: UseColumnStateOptions = {}): UseColumnSt
 
   // Persist state changes to VS Code
   useEffect(() => {
-    vscode.setState({ sorting, columnVisibility, columnOrder, kanbanSortOrder });
+    transport.setState({ sorting, columnVisibility, columnOrder, kanbanSortOrder });
   }, [sorting, columnVisibility, columnOrder, kanbanSortOrder]);
 
   const resetVisibility = () => {

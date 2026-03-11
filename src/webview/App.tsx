@@ -13,8 +13,8 @@ import {
   DependencyGraph,
   ExtensionMessage,
   WebviewSettings,
-  vscode,
 } from "./types";
+import { transport } from "./transport";
 import { DashboardView } from "./views/DashboardView";
 import { IssuesView } from "./views/IssuesView";
 import { DetailsView } from "./views/DetailsView";
@@ -102,7 +102,7 @@ export function App(): React.ReactElement {
         setState((prev) => ({ ...prev, teamMembers: message.members }));
         break;
       case "refresh":
-        vscode.postMessage({ type: "refresh" });
+        transport.postMessage({ type: "refresh" });
         break;
       case "showToast":
         triggerToast(message.text, "top-right");
@@ -115,7 +115,7 @@ export function App(): React.ReactElement {
     window.addEventListener("message", handleMessage);
 
     // Notify extension that webview is ready
-    vscode.postMessage({ type: "ready" });
+    transport.postMessage({ type: "ready" });
 
     return () => {
       window.removeEventListener("message", handleMessage);
@@ -140,13 +140,13 @@ export function App(): React.ReactElement {
             projects={state.projects}
             activeProject={state.project}
             onSelectProject={(projectId) =>
-              vscode.postMessage({ type: "selectProject", projectId })
+              transport.postMessage({ type: "selectProject", projectId })
             }
             onSelectBead={(beadId) =>
-              vscode.postMessage({ type: "openBeadDetails", beadId })
+              transport.postMessage({ type: "openBeadDetails", beadId })
             }
             onRetry={() =>
-              vscode.postMessage({ type: "refresh" })
+              transport.postMessage({ type: "refresh" })
             }
           />
         );
@@ -162,16 +162,16 @@ export function App(): React.ReactElement {
             activeProject={state.project}
             tooltipHoverDelay={state.settings.tooltipHoverDelay}
             onSelectProject={(projectId) =>
-              vscode.postMessage({ type: "selectProject", projectId })
+              transport.postMessage({ type: "selectProject", projectId })
             }
             onSelectBead={(beadId) =>
-              vscode.postMessage({ type: "openBeadDetails", beadId })
+              transport.postMessage({ type: "openBeadDetails", beadId })
             }
             onUpdateBead={(beadId, updates) =>
-              vscode.postMessage({ type: "updateBead", beadId, updates })
+              transport.postMessage({ type: "updateBead", beadId, updates })
             }
             onRetry={() =>
-              vscode.postMessage({ type: "refresh" })
+              transport.postMessage({ type: "refresh" })
             }
           />
         );
@@ -203,28 +203,28 @@ export function App(): React.ReactElement {
             userId={state.settings.userId}
             knownAssignees={knownAssignees}
             onUpdateBead={(beadId, updates) =>
-              vscode.postMessage({ type: "updateBead", beadId, updates })
+              transport.postMessage({ type: "updateBead", beadId, updates })
             }
             onAddDependency={(beadId, targetId, dependencyType, reverse) =>
-              vscode.postMessage({ type: "addDependency", beadId, targetId, dependencyType, reverse })
+              transport.postMessage({ type: "addDependency", beadId, targetId, dependencyType, reverse })
             }
             onRemoveDependency={(beadId, dependsOnId) =>
-              vscode.postMessage({ type: "removeDependency", beadId, dependsOnId })
+              transport.postMessage({ type: "removeDependency", beadId, dependsOnId })
             }
             onAddComment={(beadId, text) =>
-              vscode.postMessage({ type: "addComment", beadId, text })
+              transport.postMessage({ type: "addComment", beadId, text })
             }
             onViewInGraph={(beadId) =>
-              vscode.postMessage({ type: "viewInGraph", beadId })
+              transport.postMessage({ type: "viewInGraph", beadId })
             }
             onSelectBead={(beadId) =>
-              vscode.postMessage({ type: "openBeadDetails", beadId })
+              transport.postMessage({ type: "openBeadDetails", beadId })
             }
             onCopyId={(beadId) =>
-              vscode.postMessage({ type: "copyBeadId", beadId })
+              transport.postMessage({ type: "copyBeadId", beadId })
             }
             onDeleteBead={(beadId) =>
-              vscode.postMessage({ type: "deleteBead", beadId })
+              transport.postMessage({ type: "deleteBead", beadId })
             }
           />
         );
@@ -238,7 +238,7 @@ export function App(): React.ReactElement {
             error={state.error}
             highlightedBeadId={state.highlightedBeadId}
             onSelectBead={(beadId) =>
-              vscode.postMessage({ type: "openBeadDetails", beadId })
+              transport.postMessage({ type: "openBeadDetails", beadId })
             }
           />
         );
