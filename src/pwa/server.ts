@@ -143,7 +143,7 @@ async function handleMessage(
         const dbName = String(msg.projectId);
         selectDatabase(dbName);
         send({ type: "setProject", project: {
-          id: dbName, name: dbName, rootPath: "", beadsDir: "", status: "connected",
+          id: dbName, name: dbName, rootPath: `${doltHost}:${doltPort}/${dbName}`, beadsDir: "", status: "connected",
         }});
         await loadData(send);
       }
@@ -226,10 +226,11 @@ async function initializeView(send: (m: ExtensionMessage) => void): Promise<void
   const databases = await discoverDatabases(doltHost, doltPort);
 
   // Build project list from discovered databases
+  const source = `${doltHost}:${doltPort}`;
   const projects = databases.map(db => ({
     id: db.name,
     name: db.name,
-    rootPath: "",
+    rootPath: `${source}/${db.name}`,
     beadsDir: "",
     status: "connected" as string,
   }));
