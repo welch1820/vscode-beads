@@ -60,19 +60,10 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
     this.setError(null);
 
     try {
-      // Fetch beads and Bugzilla bugs in parallel
-      const bzConfig = this.getBugzillaConfig();
-      const bzPromise = BugzillaClient.isConfigured(bzConfig)
-        ? new BugzillaClient(bzConfig).fetchAssignedBugs().catch((err) => {
-            this.log.warn(`Bugzilla fetch failed: ${err}`);
-            return [] as Bead[];
-          })
-        : Promise.resolve([] as Bead[]);
-
-      const [issues, blockedByMap, bzBeads] = await Promise.all([
+      // Fetch beads from bd CLI
+      const [issues, blockedByMap] = await Promise.all([
         client.list({ status: "all" }),
         client.blockedByMap(),
-        bzPromise,
       ]);
       const beads = issues
         .map(issueToWebviewBead)
@@ -97,12 +88,25 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
         }
       }
 
-      this.postMessage({ type: "setBeads", beads: [...beads, ...bzBeads] });
+      // Send beads immediately — don't wait for Bugzilla
+      this.postMessage({ type: "setBeads", beads });
+      this.setLoading(false);
+
+      // Fetch Bugzilla bugs asynchronously and merge when ready
+      const bzConfig = this.getBugzillaConfig();
+      if (BugzillaClient.isConfigured(bzConfig)) {
+        new BugzillaClient(bzConfig).fetchAssignedBugs().then((bzBeads) => {
+          if (bzBeads.length > 0) {
+            this.postMessage({ type: "setBeads", beads: [...beads, ...bzBeads] });
+          }
+        }).catch((err) => {
+          this.log.warn(`Bugzilla fetch failed: ${err}`);
+        });
+      }
     } catch (err) {
       this.setError(String(err));
       this.postMessage({ type: "setBeads", beads: [] });
       this.handleDaemonError("Failed to load beads", err);
-    } finally {
       this.setLoading(false);
     }
   }
