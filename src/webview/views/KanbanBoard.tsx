@@ -15,6 +15,7 @@ import { Icon } from "../common/Icon";
 import { BlockedBadge } from "../common/BlockedBadge";
 import { SourceBadge } from "../common/SourceBadge";
 import { groupByBlockers } from "../common/groupByBlockers";
+import { buildEpicChildIds, toggleEpicSelection } from "../common/epic-filter";
 
 interface KanbanBoardProps {
   beads: Bead[];
@@ -95,30 +96,10 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
   const epicBeads = useMemo(() => (allBeads ?? beads).filter((b) => b.type === "epic" && b.status !== "closed"), [allBeads, beads]);
   const nonEpicBeads = useMemo(() => beads.filter((b) => b.type !== "epic"), [beads]);
 
-  // Build set of bead IDs that are children of selected epics
-  const epicChildIds = useMemo(() => {
-    if (selectedEpicIds.size === 0) return null; // null = no filtering
-    const childIds = new Set<string>();
-    // From epic side: epic.blocks contains children
-    for (const epic of epicBeads) {
-      if (!selectedEpicIds.has(epic.id)) continue;
-      if (epic.blocks) {
-        for (const dep of epic.blocks) childIds.add(dep.id);
-      }
-    }
-    // From child side: child.blockedBy contains epic IDs
-    for (const bead of nonEpicBeads) {
-      if (bead.blockedBy) {
-        for (const blockerId of bead.blockedBy) {
-          if (selectedEpicIds.has(blockerId)) {
-            childIds.add(bead.id);
-            break;
-          }
-        }
-      }
-    }
-    return childIds;
-  }, [epicBeads, nonEpicBeads, selectedEpicIds]);
+  const epicChildIds = useMemo(
+    () => buildEpicChildIds(epicBeads, nonEpicBeads, selectedEpicIds),
+    [epicBeads, nonEpicBeads, selectedEpicIds],
+  );
 
   // Beads to show in status columns: always non-epic, optionally filtered by selected epics
   const visibleBeads = useMemo(() => {
@@ -127,12 +108,7 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
   }, [nonEpicBeads, epicChildIds]);
 
   const toggleEpic = (epicId: string) => {
-    setSelectedEpicIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(epicId)) next.delete(epicId);
-      else next.add(epicId);
-      return next;
-    });
+    setSelectedEpicIds(toggleEpicSelection(selectedEpicIds, epicId));
   };
 
   // Auto-expand collapsed column when selected bead is in it

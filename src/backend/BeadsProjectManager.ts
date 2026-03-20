@@ -76,39 +76,93 @@ export class BeadsProjectManager implements vscode.Disposable {
     }
   }
 
+  /** Directories to skip when scanning for .beads subdirectories */
+  private static readonly SCAN_SKIP_DIRS = new Set([
+    "node_modules", ".git", ".hg", ".svn", "dist", "build", "out",
+    ".beads", "__pycache__", ".tox", "vendor", ".cache",
+  ]);
+
   /**
-   * Discovers Beads projects in all workspace folders
+   * Discovers Beads projects in all workspace folders,
+   * scanning subfolders up to a configurable depth.
    */
   async discoverProjects(): Promise<void> {
     this.log.info("Discovering Beads projects...");
 
     const discoveredProjects: BeadsProject[] = [];
     const workspaceFolders = vscode.workspace.workspaceFolders || [];
+    const maxDepth = vscode.workspace
+      .getConfiguration("beads")
+      .get<number>("scanDepth", 3);
 
-    // Check each workspace folder for a .beads directory
     for (const folder of workspaceFolders) {
-      const beadsDir = path.join(folder.uri.fsPath, ".beads");
-
-      try {
-        const stats = await fs.promises.stat(beadsDir);
-        if (stats.isDirectory()) {
-          const project = await this.createProjectFromPath(
-            folder.uri.fsPath,
-            beadsDir,
-            folder.name
-          );
-          discoveredProjects.push(project);
-          this.log.info(`Found project: ${project.name} at ${project.rootPath}`);
-        }
-      } catch {
-        // .beads directory doesn't exist in this folder, skip
-      }
+      const found = await this.scanForBeadsProjects(
+        folder.uri.fsPath,
+        folder.name,
+        0,
+        maxDepth
+      );
+      discoveredProjects.push(...found);
     }
 
     this.projects = discoveredProjects;
     this._onProjectsChanged.fire(this.projects);
 
     this.log.info(`Discovered ${this.projects.length} project(s)`);
+  }
+
+  /**
+   * Recursively scans a directory for .beads subdirectories.
+   * When a .beads dir is found, the containing directory is registered
+   * as a project and its children are NOT scanned further.
+   */
+  private async scanForBeadsProjects(
+    dir: string,
+    displayName: string,
+    depth: number,
+    maxDepth: number
+  ): Promise<BeadsProject[]> {
+    const beadsDir = path.join(dir, ".beads");
+    try {
+      const stats = await fs.promises.stat(beadsDir);
+      if (stats.isDirectory()) {
+        const project = await this.createProjectFromPath(dir, beadsDir, displayName);
+        this.log.info(`Found project: ${project.name} at ${project.rootPath}`);
+        return [project];
+      }
+    } catch {
+      // no .beads here
+    }
+
+    // Don't recurse past the depth limit
+    if (depth >= maxDepth) {
+      return [];
+    }
+
+    // Scan child directories
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      return [];
+    }
+
+    const results: BeadsProject[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() || entry.name.startsWith(".") ||
+          BeadsProjectManager.SCAN_SKIP_DIRS.has(entry.name)) {
+        continue;
+      }
+      const childPath = path.join(dir, entry.name);
+      const found = await this.scanForBeadsProjects(
+        childPath,
+        entry.name,
+        depth + 1,
+        maxDepth
+      );
+      results.push(...found);
+    }
+    return results;
   }
 
   /**
