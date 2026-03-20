@@ -6,6 +6,10 @@ dist/
 .DS_Store
 tmp/
 
+# Beads
+.beads/
+.claude/
+
 # Local dev artifacts (code-server, openvscode-server)
 .cache/
 .openvscode-server/

@@ -156,6 +156,13 @@
           "default": "",
           "description": "Your user ID for 'Assign to me'. Defaults to $USER if not set."
         },
+        "beads.scanDepth": {
+          "type": "number",
+          "default": 3,
+          "minimum": 0,
+          "maximum": 10,
+          "description": "Maximum directory depth to scan for .beads projects within each workspace folder. 0 = root only (old behavior)."
+        },
         "beads.tooltipHoverDelay": {
           "type": "number",
           "default": 1000,

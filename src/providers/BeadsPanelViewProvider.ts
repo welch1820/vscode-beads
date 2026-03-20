@@ -20,6 +20,7 @@ import { handleStartWork } from "../utils/startWork";
 export class BeadsPanelViewProvider extends BaseViewProvider {
   protected readonly viewType = "beadsPanel";
   private selectedBeadId: string | null = null;
+  private cachedBugzillaBeads: Bead[] = [];
 
   constructor(
     extensionUri: vscode.Uri,
@@ -60,19 +61,10 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
     this.setError(null);
 
     try {
-      // Fetch beads and Bugzilla bugs in parallel
-      const bzConfig = this.getBugzillaConfig();
-      const bzPromise = BugzillaClient.isConfigured(bzConfig)
-        ? new BugzillaClient(bzConfig).fetchAssignedBugs().catch((err) => {
-            this.log.warn(`Bugzilla fetch failed: ${err}`);
-            return [] as Bead[];
-          })
-        : Promise.resolve([] as Bead[]);
-
-      const [issues, blockedByMap, bzBeads] = await Promise.all([
+      // Fetch beads from bd CLI
+      const [issues, blockedByMap] = await Promise.all([
         client.list({ status: "all" }),
         client.blockedByMap(),
-        bzPromise,
       ]);
       const beads = issues
         .map(issueToWebviewBead)
@@ -97,12 +89,28 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
         }
       }
 
-      this.postMessage({ type: "setBeads", beads: [...beads, ...bzBeads] });
+      // Send beads immediately with cached Bugzilla bugs to prevent flashing
+      this.postMessage({ type: "setBeads", beads: [...beads, ...this.cachedBugzillaBeads] });
+      this.setLoading(false);
+
+      // Refresh Bugzilla bugs asynchronously and update cache
+      const bzConfig = this.getBugzillaConfig();
+      if (BugzillaClient.isConfigured(bzConfig)) {
+        new BugzillaClient(bzConfig).fetchAssignedBugs().then((bzBeads) => {
+          const hadCached = this.cachedBugzillaBeads.length > 0;
+          this.cachedBugzillaBeads = bzBeads;
+          // Re-send if fresh data differs from what we sent with the cache
+          if (bzBeads.length > 0 || hadCached) {
+            this.postMessage({ type: "setBeads", beads: [...beads, ...bzBeads] });
+          }
+        }).catch((err) => {
+          this.log.warn(`Bugzilla fetch failed: ${err}`);
+        });
+      }
     } catch (err) {
       this.setError(String(err));
       this.postMessage({ type: "setBeads", beads: [] });
       this.handleDaemonError("Failed to load beads", err);
-    } finally {
       this.setLoading(false);
     }
   }

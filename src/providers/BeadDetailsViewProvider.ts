@@ -23,6 +23,10 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
   private currentProjectId: string | null = null;
   private loadSequence = 0; // Tracks request order to prevent stale responses
 
+  // Cached data shared across selections — refreshed on mutation events via refresh()
+  private cachedAllBeads: Bead[] | null = null;
+  private cachedBlockedIds: Set<string> | null = null;
+
   constructor(
     extensionUri: vscode.Uri,
     projectManager: BeadsProjectManager,
@@ -66,6 +70,15 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
     this.setLoading(false);
   }
 
+  /**
+   * Invalidate cached data so next loadData() re-fetches from CLI.
+   * Called by refresh() on mutation events.
+   */
+  public invalidateCache(): void {
+    this.cachedAllBeads = null;
+    this.cachedBlockedIds = null;
+  }
+
   protected async loadData(): Promise<void> {
     // Increment sequence to track this request - prevents stale responses from
     // overwriting newer data when multiple refreshes occur in rapid succession
@@ -74,10 +87,11 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
     const client = this.projectManager.getClient();
     const activeProjectId = this.projectManager.getActiveProject()?.id;
 
-    // Clear selection if project changed
+    // Clear selection and cache if project changed
     if (this.currentProjectId && activeProjectId !== this.currentProjectId) {
       this.currentBeadId = null;
       this.currentProjectId = activeProjectId || null;
+      this.invalidateCache();
     }
 
     if (!this.currentBeadId) {
@@ -102,27 +116,9 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
     this.setError(null);
 
     try {
-      // Fetch issue, comments, all beads (for dependency picker), and blocked IDs in parallel
-      const [issue, comments, allIssues, blockedIds] = await Promise.all([
-        client.show(this.currentBeadId),
-        client.listComments(this.currentBeadId).catch((err) => {
-          this.log.warn(`Failed to fetch comments: ${err}`);
-          return [];
-        }),
-        client.list({ status: "all" }).catch((err) => {
-          this.log.warn(`Failed to fetch beads list: ${err}`);
-          return [];
-        }),
-        client.blocked().catch((err) => {
-          this.log.warn(`Failed to fetch blocked IDs: ${err}`);
-          return [] as string[];
-        }),
-      ]);
-      const blockedSet = new Set(blockedIds);
-
-      // Send beads list for dependency picker
-      const allBeads = (allIssues || []).map(issueToWebviewBead).filter((b): b is Bead => b !== null);
-      this.postMessage({ type: "setBeads", beads: allBeads });
+      // Fast path: only fetch the selected bead (1 CLI call).
+      // Use cached list/blocked data if available; refresh them in background if stale.
+      const issue = await client.show(this.currentBeadId);
 
       // Check if a newer request has started - if so, discard this stale response
       if (thisRequest !== this.loadSequence) {
@@ -130,18 +126,20 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
         return;
       }
 
-      const commentsArray = comments || [];
+      // Send cached beads list immediately (dependency picker)
+      if (this.cachedAllBeads) {
+        this.postMessage({ type: "setBeads", beads: this.cachedAllBeads });
+      }
+
+      // Comments are included in the show() response — no separate fetch needed
+      const commentsArray = (issue?.comments ?? []) as Array<{ id: number; author: string; text: string; created_at: string }>;
       this.log.debug(`Loaded ${commentsArray.length} comments for ${this.currentBeadId}`);
+
       if (issue) {
         this.currentBeadStatus = issue.status as BeadStatus ?? null;
-        // Merge comments into issue data
-        const issueWithComments = {
-          ...issue,
-          comments: commentsArray as Array<{ id: number; author: string; text: string; created_at: string }>,
-        };
-        const bead = issueToWebviewBead(issueWithComments);
+        const bead = issueToWebviewBead(issue);
         if (bead) {
-          if (blockedSet.has(bead.id)) {
+          if (this.cachedBlockedIds?.has(bead.id)) {
             bead.isBlocked = true;
           }
           this.postMessage({ type: "setBead", bead });
@@ -152,6 +150,11 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
       } else {
         this.setError("Bead not found");
         this.postMessage({ type: "setBead", bead: null });
+      }
+
+      // Refresh cached list/blocked data in background if stale
+      if (!this.cachedAllBeads || !this.cachedBlockedIds) {
+        this.refreshCachedData(thisRequest, client);
       }
     } catch (err) {
       // Only handle error if this is still the current request
@@ -166,6 +169,37 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
       if (thisRequest === this.loadSequence) {
         this.setLoading(false);
       }
+    }
+  }
+
+  /**
+   * Refresh list/blocked caches in background and push updated data to webview.
+   */
+  private async refreshCachedData(
+    thisRequest: number,
+    client: ReturnType<BeadsProjectManager["getClient"]> & object
+  ): Promise<void> {
+    try {
+      const [allIssues, blockedIds] = await Promise.all([
+        client.list({ status: "all" }).catch((err) => {
+          this.log.warn(`Failed to fetch beads list: ${err}`);
+          return [];
+        }),
+        client.blocked().catch((err) => {
+          this.log.warn(`Failed to fetch blocked IDs: ${err}`);
+          return [] as string[];
+        }),
+      ]);
+
+      this.cachedAllBeads = (allIssues || []).map(issueToWebviewBead).filter((b): b is Bead => b !== null);
+      this.cachedBlockedIds = new Set(blockedIds);
+
+      // Push updated data to webview if this is still the current request
+      if (thisRequest === this.loadSequence) {
+        this.postMessage({ type: "setBeads", beads: this.cachedAllBeads });
+      }
+    } catch (err) {
+      this.log.warn(`Background cache refresh failed: ${err}`);
     }
   }
 
@@ -218,6 +252,15 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
         this.setLoading(false);
       }
     }
+  }
+
+  /**
+   * Override refresh to invalidate caches before reloading.
+   * Called on mutation events — ensures fresh list/blocked data.
+   */
+  public override refresh(): void {
+    this.invalidateCache();
+    super.refresh();
   }
 
   protected async handleCustomMessage(
