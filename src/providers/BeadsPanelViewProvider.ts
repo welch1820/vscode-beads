@@ -62,10 +62,12 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
 
     try {
       // Fetch beads from bd CLI
+      this.log.info("Loading issues...");
       const [issues, blockedByMap] = await Promise.all([
         client.list({ status: "all" }),
         client.blockedByMap(),
       ]);
+      this.log.info(`Loaded ${issues.length} issues`);
       const beads = issues
         .map(issueToWebviewBead)
         .filter((b): b is Bead => b !== null)
@@ -78,6 +80,7 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
       // Enrich epics with their children (bd list doesn't include dependency details)
       const epics = beads.filter((b) => b.type === "epic");
       if (epics.length > 0) {
+        this.log.info(`Enriching ${epics.length} epics...`);
         const childResults = await Promise.all(
           epics.map((epic) => client.listDependents(epic.id))
         );
@@ -91,6 +94,7 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
 
       // Send beads immediately with cached Bugzilla bugs to prevent flashing
       this.postMessage({ type: "setBeads", beads: [...beads, ...this.cachedBugzillaBeads] });
+      this.log.info(`Sent ${beads.length} beads to webview`);
       this.setLoading(false);
 
       // Refresh Bugzilla bugs asynchronously and update cache

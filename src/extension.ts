@@ -243,9 +243,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     })
   );
 
-  // Subscribe to project changes to refresh views
+  // Subscribe to project changes to refresh views (with re-entrancy guard)
+  let refreshInFlight = false;
   context.subscriptions.push(
     projectManager.onDataChanged(() => {
+      if (refreshInFlight) { return; }
+      refreshInFlight = true;
+      // Allow next refresh after views have had time to settle
+      setTimeout(() => { refreshInFlight = false; }, 1000);
       dashboardProvider.refresh();
       beadsPanelProvider.refresh();
       detailsProvider.refresh();

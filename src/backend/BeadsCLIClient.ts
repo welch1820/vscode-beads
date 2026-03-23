@@ -239,17 +239,29 @@ export class BeadsCLIClient extends EventEmitter {
     return new Promise((resolve, reject) => {
       let stdout = "";
       let stderr = "";
+      let settled = false;
 
       const proc = spawn("bd", args, {
         cwd: this.cwd,
-        timeout: this.timeout,
         env: { ...process.env },
       });
+
+      // spawn() ignores the timeout option — enforce it manually
+      const timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          proc.kill("SIGKILL");
+          reject(new Error(`bd ${args[0]} timed out after ${this.timeout}ms`));
+        }
+      }, this.timeout);
 
       proc.stdout.on("data", (data: Buffer) => { stdout += data.toString(); });
       proc.stderr.on("data", (data: Buffer) => { stderr += data.toString(); });
 
       proc.on("error", (err: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         if ((err as NodeJS.ErrnoException).code === "ENOENT") {
           reject(new Error("bd not found on PATH. Install beads: https://github.com/steveyegge/beads"));
         } else {
@@ -258,6 +270,9 @@ export class BeadsCLIClient extends EventEmitter {
       });
 
       proc.on("close", (code: number | null) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
         if (code !== 0) {
           reject(new Error(stderr.trim() || `bd exited with code ${code}`));
           return;
@@ -544,11 +559,36 @@ export class BeadsCLIClient extends EventEmitter {
 
   // ── Mutation watching (file-based) ───────────────────────────────
 
+  // Files that change on every bd command (runtime/ephemeral) — ignore these
+  // to prevent infinite refresh loops (watcher fires → refresh → bd list → files change → watcher fires)
+  private static readonly IGNORED_FILES = new Set([
+    "dolt-server.activity",
+    "dolt-server.port",
+    "dolt-server.pid",
+    "dolt-server.log",
+    "dolt-server.lock",
+    "dolt-monitor.pid",
+    "dolt-monitor.pid.lock",
+    "last-touched",
+    "interactions.jsonl",
+    "stale",
+    "team-members.json",
+  ]);
+
+  private isIgnoredFile(filename: string | null): boolean {
+    if (!filename) { return false; } // null filename = watch all (be safe, don't ignore)
+    const base = path.basename(filename);
+    return BeadsCLIClient.IGNORED_FILES.has(base);
+  }
+
   startMutationWatch(_intervalMs?: number): void {
     if (this.watcher) { return; }
     this.connected = true;
     try {
-      this.watcher = fs.watch(this.beadsDir, { recursive: true }, () => {
+      this.watcher = fs.watch(this.beadsDir, { recursive: true }, (_event, filename) => {
+        // Skip runtime/ephemeral files to prevent refresh loops
+        if (this.isIgnoredFile(filename as string | null)) { return; }
+
         if (this.debounceTimer) { clearTimeout(this.debounceTimer); }
         this.debounceTimer = setTimeout(() => {
           const mutation: MutationEvent = {
