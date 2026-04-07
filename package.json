@@ -163,6 +163,13 @@
           "maximum": 10,
           "description": "Maximum directory depth to scan for .beads projects within each workspace folder. 0 = root only (old behavior)."
         },
+        "beads.centralServerPollInterval": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 300,
+          "description": "Poll interval in seconds for projects using a central Dolt server. Local projects use filesystem watching instead."
+        },
         "beads.tooltipHoverDelay": {
           "type": "number",
           "default": 1000,

@@ -62,6 +62,8 @@ export interface BeadsProject {
   rootPath: string;
   beadsDir: string;
   status: "connected" | "disconnected" | "not_initialized";
+  projectId?: string; // Stable database identity from metadata.json
+  duplicatePaths?: string[]; // Other rootPaths with the same projectId
 }
 
 export interface BeadsSummary {

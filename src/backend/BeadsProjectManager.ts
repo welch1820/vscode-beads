@@ -28,6 +28,7 @@ export class BeadsProjectManager implements vscode.Disposable {
   private log: Logger;
   private context: vscode.ExtensionContext;
   private teamService: TeamMemberService;
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   private readonly _onProjectsChanged = new vscode.EventEmitter<BeadsProject[]>();
   public readonly onProjectsChanged = this._onProjectsChanged.event;
@@ -85,6 +86,8 @@ export class BeadsProjectManager implements vscode.Disposable {
   /**
    * Discovers Beads projects in all workspace folders,
    * scanning subfolders up to a configurable depth.
+   * After discovery, annotates duplicate projects that share
+   * the same database (same project_id in metadata.json).
    */
   async discoverProjects(): Promise<void> {
     this.log.info("Discovering Beads projects...");
@@ -105,6 +108,25 @@ export class BeadsProjectManager implements vscode.Disposable {
       discoveredProjects.push(...found);
     }
 
+    // Annotate duplicates: projects sharing the same project_id
+    const byProjectId = new Map<string, BeadsProject[]>();
+    for (const p of discoveredProjects) {
+      if (p.projectId) {
+        const group = byProjectId.get(p.projectId) || [];
+        group.push(p);
+        byProjectId.set(p.projectId, group);
+      }
+    }
+    for (const group of byProjectId.values()) {
+      if (group.length > 1) {
+        for (const p of group) {
+          p.duplicatePaths = group
+            .filter((other) => other.rootPath !== p.rootPath)
+            .map((other) => other.rootPath);
+        }
+      }
+    }
+
     this.projects = discoveredProjects;
     this._onProjectsChanged.fire(this.projects);
 
@@ -113,8 +135,9 @@ export class BeadsProjectManager implements vscode.Disposable {
 
   /**
    * Recursively scans a directory for .beads subdirectories.
-   * When a .beads dir is found, the containing directory is registered
-   * as a project and its children are NOT scanned further.
+   * Every .beads at any depth is discovered. Child directories are
+   * always scanned so that a workspace root with its own .beads still
+   * discovers projects in subfolders.
    */
   private async scanForBeadsProjects(
     dir: string,
@@ -122,13 +145,15 @@ export class BeadsProjectManager implements vscode.Disposable {
     depth: number,
     maxDepth: number
   ): Promise<BeadsProject[]> {
+    const results: BeadsProject[] = [];
+
     const beadsDir = path.join(dir, ".beads");
     try {
       const stats = await fs.promises.stat(beadsDir);
       if (stats.isDirectory()) {
         const project = await this.createProjectFromPath(dir, beadsDir, displayName);
         this.log.info(`Found project: ${project.name} at ${project.rootPath}`);
-        return [project];
+        results.push(project);
       }
     } catch {
       // no .beads here
@@ -136,7 +161,7 @@ export class BeadsProjectManager implements vscode.Disposable {
 
     // Don't recurse past the depth limit
     if (depth >= maxDepth) {
-      return [];
+      return results;
     }
 
     // Scan child directories
@@ -144,10 +169,9 @@ export class BeadsProjectManager implements vscode.Disposable {
     try {
       entries = await fs.promises.readdir(dir, { withFileTypes: true });
     } catch {
-      return [];
+      return results;
     }
 
-    const results: BeadsProject[] = [];
     for (const entry of entries) {
       if (!entry.isDirectory() || entry.name.startsWith(".") ||
           BeadsProjectManager.SCAN_SKIP_DIRS.has(entry.name)) {
@@ -166,6 +190,23 @@ export class BeadsProjectManager implements vscode.Disposable {
   }
 
   /**
+   * Checks whether a .beads/config.yaml has server-host and server-port,
+   * indicating the project uses a central Dolt server (no local dolt/ dir).
+   */
+  private async hasCentralServerConfig(beadsDir: string): Promise<boolean> {
+    try {
+      const configPath = path.join(beadsDir, "config.yaml");
+      const content = await fs.promises.readFile(configPath, "utf-8");
+      // Match uncommented server-host and server-port lines
+      const hasHost = /^server-host:\s*\S/m.test(content);
+      const hasPort = /^server-port:\s*\d/m.test(content);
+      return hasHost && hasPort;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Creates a BeadsProject from a discovered path
    */
   private async createProjectFromPath(
@@ -173,7 +214,9 @@ export class BeadsProjectManager implements vscode.Disposable {
     beadsDir: string,
     folderName: string
   ): Promise<BeadsProject> {
-    // Check if project is fully initialized (has dolt database)
+    // Check if project is fully initialized:
+    // - local Dolt: .beads/dolt/ directory exists
+    // - central server: config.yaml has server-host + server-port
     let status: "connected" | "disconnected" | "not_initialized" = "disconnected";
     const doltDir = path.join(beadsDir, "dolt");
     try {
@@ -182,7 +225,25 @@ export class BeadsProjectManager implements vscode.Disposable {
         status = "connected";
       }
     } catch {
-      status = "not_initialized";
+      // No local dolt dir — check for central server config
+      if (await this.hasCentralServerConfig(beadsDir)) {
+        status = "connected";
+      } else {
+        status = "not_initialized";
+      }
+    }
+
+    // Read project_id from metadata.json for duplicate detection
+    let projectId: string | undefined;
+    try {
+      const metaPath = path.join(beadsDir, "metadata.json");
+      const metaContent = await fs.promises.readFile(metaPath, "utf-8");
+      const meta = JSON.parse(metaContent);
+      if (meta.project_id) {
+        projectId = String(meta.project_id);
+      }
+    } catch {
+      // No metadata.json or invalid — projectId stays undefined
     }
 
     return {
@@ -191,6 +252,7 @@ export class BeadsProjectManager implements vscode.Disposable {
       rootPath,
       beadsDir,
       status,
+      projectId,
     };
   }
 
@@ -237,7 +299,8 @@ export class BeadsProjectManager implements vscode.Disposable {
       return false;
     }
 
-    // Clean up previous client
+    // Clean up previous client and poll timer
+    this.stopPollTimer();
     if (this.client) {
       this.client.stopMutationWatch();
       this.client.dispose();
@@ -262,8 +325,8 @@ export class BeadsProjectManager implements vscode.Disposable {
       project.status = "connected";
       this.log.info("bd CLI available, project connected");
 
-      // Start file-based mutation watching
-      this.setupMutationWatching();
+      // Start file-based mutation watching (+ polling for central server projects)
+      await this.setupMutationWatching();
     } catch (err) {
       this.log.warn(`bd CLI not available or project not initialized: ${err}`);
       project.status = "disconnected";
@@ -276,10 +339,15 @@ export class BeadsProjectManager implements vscode.Disposable {
   }
 
   /**
-   * Sets up file-based mutation watching for the active project
+   * Sets up file-based mutation watching for the active project.
+   * For central server projects (no local dolt/), also starts a periodic poll
+   * since fs.watch won't detect server-side changes.
    */
-  private setupMutationWatching(): void {
-    if (!this.client) return;
+  private async setupMutationWatching(): Promise<void> {
+    if (!this.client || !this.activeProject) return;
+
+    // Stop any existing poll timer from a previous project
+    this.stopPollTimer();
 
     this.client.on("mutation", (mutation: MutationEvent) => {
       this.log.debug(`Mutation: ${mutation.Type} on ${mutation.IssueID}`);
@@ -296,8 +364,28 @@ export class BeadsProjectManager implements vscode.Disposable {
     });
 
     this.client.startMutationWatch();
+
+    // Central server projects need periodic polling since local fs.watch
+    // won't detect changes made on the remote Dolt server
+    const hasLocalDolt = fs.existsSync(path.join(this.activeProject.beadsDir, "dolt"));
+    if (!hasLocalDolt && await this.hasCentralServerConfig(this.activeProject.beadsDir)) {
+      const pollIntervalMs = vscode.workspace.getConfiguration("beads")
+        .get<number>("centralServerPollInterval", 30) * 1000;
+      this.log.info(`Central server project "${this.activeProject.name}" — polling every ${pollIntervalMs / 1000}s`);
+      this.pollTimer = setInterval(() => {
+        this._onDataChanged.fire();
+      }, pollIntervalMs);
+    }
+
     this._onActiveProjectChanged.fire(this.activeProject);
     this._onDataChanged.fire();
+  }
+
+  private stopPollTimer(): void {
+    if (this.pollTimer) {
+      clearInterval(this.pollTimer);
+      this.pollTimer = null;
+    }
   }
 
   /**
@@ -311,14 +399,16 @@ export class BeadsProjectManager implements vscode.Disposable {
       return { state: "disconnected", message: "No active project" };
     }
 
-    // Check if .beads/dolt/ exists
+    // Check if .beads/dolt/ exists or central server is configured
     const doltDir = path.join(this.activeProject.beadsDir, "dolt");
+    let hasLocalDolt = false;
     try {
       const stat = await fs.promises.stat(doltDir);
-      if (!stat.isDirectory()) {
-        return { state: "not_initialized", message: "Run 'bd init' to initialize." };
-      }
+      hasLocalDolt = stat.isDirectory();
     } catch {
+      // no local dolt dir
+    }
+    if (!hasLocalDolt && !(await this.hasCentralServerConfig(this.activeProject.beadsDir))) {
       return { state: "not_initialized", message: "Run 'bd init' to initialize." };
     }
 
@@ -351,7 +441,7 @@ export class BeadsProjectManager implements vscode.Disposable {
     // If we just recovered from disconnected, start mutation watching
     if (previousStatus !== "connected" && status.state === "connected") {
       this.log.info("Database recovered, starting mutation watch");
-      this.setupMutationWatching();
+      await this.setupMutationWatching();
     }
 
     this._onDataChanged.fire();
@@ -401,6 +491,7 @@ export class BeadsProjectManager implements vscode.Disposable {
   }
 
   dispose(): void {
+    this.stopPollTimer();
     if (this.client) {
       this.client.stopMutationWatch();
       this.client.dispose();
