@@ -35,6 +35,8 @@ jest.mock(
 let fsDirs: Set<string>;
 // Simulated directory contents: path -> child Dirent entries
 let fsDirContents: Map<string, Array<{ name: string; isDirectory: () => boolean }>>;
+// Simulated file contents: path -> string content
+let fsFileContents: Map<string, string>;
 
 jest.mock("fs", () => {
   const actual = jest.requireActual("fs");
@@ -53,6 +55,11 @@ jest.mock("fs", () => {
         const entries = fsDirContents.get(dir);
         if (entries) return entries;
         throw new Error(`ENOENT: ${dir}`);
+      }),
+      readFile: jest.fn().mockImplementation(async (p: string) => {
+        const content = fsFileContents.get(p);
+        if (content !== undefined) return content;
+        throw new Error(`ENOENT: ${p}`);
       }),
     },
   };
@@ -99,9 +106,11 @@ function dirent(name: string, isDir: boolean) {
 function setupFs(tree: {
   dirs: string[];
   dirContents: Record<string, Array<{ name: string; isDirectory: () => boolean }>>;
+  files?: Record<string, string>;
 }) {
   fsDirs = new Set(tree.dirs);
   fsDirContents = new Map(Object.entries(tree.dirContents));
+  fsFileContents = new Map(Object.entries(tree.files || {}));
 }
 
 function setWorkspaceFolders(...folders: Array<{ path: string; name: string }>) {
@@ -201,19 +210,17 @@ describe("BeadsProjectManager.discoverProjects", () => {
     expect(manager.getProjects()).toHaveLength(0);
   });
 
-  it("does not recurse into a directory that has .beads", async () => {
+  it("finds .beads at every depth including nested projects", async () => {
     setWorkspaceFolders({ path: "/ws", name: "workspace" });
     setupFs({
       dirs: [
         "/ws/parent/.beads",
         "/ws/parent/.beads/dolt",
-        // nested child also has .beads — should NOT be found
         "/ws/parent/child/.beads",
         "/ws/parent/child/.beads/dolt",
       ],
       dirContents: {
         "/ws": [dirent("parent", true)],
-        // parent has .beads, so readdir for parent should NOT be called
         "/ws/parent": [dirent("child", true)],
         "/ws/parent/child": [],
       },
@@ -222,8 +229,9 @@ describe("BeadsProjectManager.discoverProjects", () => {
     await manager.discoverProjects();
     const projects = manager.getProjects();
 
-    expect(projects).toHaveLength(1);
-    expect(projects[0].name).toBe("parent");
+    expect(projects).toHaveLength(2);
+    const names = projects.map((p) => p.name).sort();
+    expect(names).toEqual(["child", "parent"]);
   });
 
   it("skips node_modules and .git directories", async () => {
@@ -324,5 +332,98 @@ describe("BeadsProjectManager.discoverProjects", () => {
 
     await manager.discoverProjects();
     expect(manager.getProjects()).toHaveLength(0);
+  });
+
+  it("finds .beads at workspace root AND in subfolders", async () => {
+    setWorkspaceFolders({ path: "/ws", name: "workspace" });
+    setupFs({
+      dirs: [
+        "/ws/.beads",
+        "/ws/.beads/dolt",
+        "/ws/projectA/.beads",
+        "/ws/projectA/.beads/dolt",
+        "/ws/projectB/.beads",
+        "/ws/projectB/.beads/dolt",
+      ],
+      dirContents: {
+        "/ws": [dirent("projectA", true), dirent("projectB", true)],
+        "/ws/projectA": [],
+        "/ws/projectB": [],
+      },
+    });
+
+    await manager.discoverProjects();
+    const projects = manager.getProjects();
+
+    expect(projects).toHaveLength(3);
+    const names = projects.map((p) => p.name).sort();
+    expect(names).toEqual(["projectA", "projectB", "workspace"]);
+  });
+
+  it("annotates duplicate projects sharing the same project_id", async () => {
+    setWorkspaceFolders({ path: "/ws", name: "workspace" });
+    const sharedId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+    setupFs({
+      dirs: [
+        "/ws/clone1/.beads",
+        "/ws/clone1/.beads/dolt",
+        "/ws/clone2/.beads",
+        "/ws/clone2/.beads/dolt",
+        "/ws/different/.beads",
+        "/ws/different/.beads/dolt",
+      ],
+      dirContents: {
+        "/ws": [dirent("clone1", true), dirent("clone2", true), dirent("different", true)],
+        "/ws/clone1": [],
+        "/ws/clone2": [],
+        "/ws/different": [],
+      },
+      files: {
+        "/ws/clone1/.beads/metadata.json": JSON.stringify({ project_id: sharedId }),
+        "/ws/clone2/.beads/metadata.json": JSON.stringify({ project_id: sharedId }),
+        "/ws/different/.beads/metadata.json": JSON.stringify({ project_id: "unique-id" }),
+      },
+    });
+
+    await manager.discoverProjects();
+    const projects = manager.getProjects();
+
+    expect(projects).toHaveLength(3);
+
+    const clone1 = projects.find((p) => p.name === "clone1")!;
+    const clone2 = projects.find((p) => p.name === "clone2")!;
+    const different = projects.find((p) => p.name === "different")!;
+
+    // clone1 and clone2 share a project_id — each should list the other
+    expect(clone1.projectId).toBe(sharedId);
+    expect(clone2.projectId).toBe(sharedId);
+    expect(clone1.duplicatePaths).toEqual(["/ws/clone2"]);
+    expect(clone2.duplicatePaths).toEqual(["/ws/clone1"]);
+
+    // different has a unique project_id — no duplicates
+    expect(different.projectId).toBe("unique-id");
+    expect(different.duplicatePaths).toBeUndefined();
+  });
+
+  it("does not set duplicatePaths when metadata.json is missing", async () => {
+    setWorkspaceFolders({ path: "/ws", name: "workspace" });
+    setupFs({
+      dirs: [
+        "/ws/proj/.beads",
+        "/ws/proj/.beads/dolt",
+      ],
+      dirContents: {
+        "/ws": [dirent("proj", true)],
+        "/ws/proj": [],
+      },
+      // no files — metadata.json missing
+    });
+
+    await manager.discoverProjects();
+    const projects = manager.getProjects();
+
+    expect(projects).toHaveLength(1);
+    expect(projects[0].projectId).toBeUndefined();
+    expect(projects[0].duplicatePaths).toBeUndefined();
   });
 });

@@ -117,6 +117,8 @@ export interface BeadsProject {
   rootPath: string; // Project root (VS Code workspace folder)
   beadsDir: string; // Path to .beads directory
   status: "connected" | "disconnected" | "not_initialized";
+  projectId?: string; // Stable database identity from metadata.json
+  duplicatePaths?: string[]; // Other rootPaths with the same projectId
 }
 
 // Result from `bd info --json`
