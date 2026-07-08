@@ -19,3 +19,8 @@ CLAUDE.local.md
 
 # Generated at build time
 src/build-stamp.ts
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
