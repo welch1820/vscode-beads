@@ -158,7 +158,7 @@ describe("BeadsCLIClient", () => {
       resolveWith([{ id: "b-1", title: "Test", status: "open", priority: 2 }]);
       const result = await promise;
 
-      expect(lastSpawnArgs!.args).toEqual(["show", "b-1", "--json"]);
+      expect(lastSpawnArgs!.args).toEqual(["show", "b-1", "--json", "--include-comments", "--include-dependents"]);
       expect(result!.id).toBe("b-1");
     });
 
@@ -438,12 +438,12 @@ describe("BeadsCLIClient", () => {
   // ── health ───────────────────────────────────────────────────
 
   describe("health", () => {
-    it("calls bd info --json and returns synthetic health response", async () => {
+    it("calls bd version --json and returns synthetic health response", async () => {
       const promise = client.health();
       resolveWith({ version: "0.55.4" });
       const result = await promise;
 
-      expect(lastSpawnArgs!.args).toEqual(["info", "--json"]);
+      expect(lastSpawnArgs!.args).toEqual(["version", "--json"]);
       expect(result.status).toBe("healthy");
       expect(result.version).toBe("0.55.4");
       expect(result.compatible).toBe(true);

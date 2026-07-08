@@ -320,7 +320,8 @@ export class BeadsCLIClient extends EventEmitter {
 
   async show(id: string): Promise<Issue | null> {
     try {
-      const result = await this.execBd(["show", id, "--json"]);
+      // bd 1.1.0 omits comments/dependents from `show` unless explicitly requested.
+      const result = await this.execBd(["show", id, "--json", "--include-comments", "--include-dependents"]);
       // bd show returns an array with one element
       if (Array.isArray(result) && result.length > 0) {
         return result[0] as Issue;
@@ -519,7 +520,9 @@ export class BeadsCLIClient extends EventEmitter {
   }
 
   async health(): Promise<HealthResponse> {
-    const info = await this.execBd(["info", "--json"]) as Record<string, unknown> | null;
+    // Use `version` (not `info`): it returns valid JSON and succeeds even when the
+    // DB has a pending schema migration, where `bd info` exits non-zero (bd 1.1.0).
+    const info = await this.execBd(["version", "--json"]) as Record<string, unknown> | null;
     this.connected = true;
     return {
       status: "healthy",
@@ -534,7 +537,7 @@ export class BeadsCLIClient extends EventEmitter {
   }
 
   async ping(): Promise<{ message: string; version: string }> {
-    const info = await this.execBd(["info", "--json"]) as Record<string, unknown> | null;
+    const info = await this.execBd(["version", "--json"]) as Record<string, unknown> | null;
     this.connected = true;
     return {
       message: "pong",
@@ -543,7 +546,7 @@ export class BeadsCLIClient extends EventEmitter {
   }
 
   async status(): Promise<StatusResponse> {
-    const info = await this.execBd(["info", "--json"]) as Record<string, unknown> | null;
+    const info = await this.execBd(["version", "--json"]) as Record<string, unknown> | null;
     this.connected = true;
     return {
       version: String(info?.version ?? "unknown"),

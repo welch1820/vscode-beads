@@ -60,5 +60,20 @@ sync-branch: "beads-metadata"
 # - linear.api-key
 # - github.org
 # - github.repo
+
+backup:
+    enabled: false
+
+export.git-add: false
+
+issue-prefix: vsbeads
+
+no-git-ops: true
+
 server-host: "127.0.0.1"
 server-port: 3307
+
+sync-branch: beads-metadata
+
+# central Dolt is source of truth; auto-export to issues.jsonl is redundant and would resurrect the file we just moved to stale/
+export.auto: false
