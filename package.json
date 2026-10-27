@@ -200,6 +200,21 @@
           "type": "string",
           "default": "",
           "description": "Your Bugzilla email/username. Used to fetch bugs assigned to you."
+        },
+        "beads.jira.url": {
+          "type": "string",
+          "default": "",
+          "description": "Jira Cloud base URL (e.g., https://your-org.atlassian.net). Falls back to the JIRA_URL environment variable. Leave empty to disable Jira integration."
+        },
+        "beads.jira.email": {
+          "type": "string",
+          "default": "",
+          "description": "Your Jira account email. Falls back to the JIRA_USERNAME environment variable."
+        },
+        "beads.jira.apiToken": {
+          "type": "string",
+          "default": "",
+          "description": "Jira API token for authentication. Falls back to the JIRA_API_TOKEN environment variable. Generate one at id.atlassian.com > Security > API tokens."
         }
       }
     }

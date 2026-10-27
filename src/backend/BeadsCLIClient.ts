@@ -397,6 +397,29 @@ export class BeadsCLIClient extends EventEmitter {
     };
   }
 
+  /**
+   * Read a value from the beads Dolt key-value store (`bd kv get`).
+   * Returns null when the key is unset (bd exits non-zero) or bd errors —
+   * callers fall back to defaults. Scoped to this client's project dir.
+   */
+  async kvGet(key: string): Promise<string | null> {
+    try {
+      const res = await this.execBd(["kv", "get", key, "--json"]) as
+        { found?: boolean; value?: string } | null;
+      if (!res || res.found === false) { return null; }
+      return typeof res.value === "string" ? res.value : null;
+    } catch {
+      return null; // unset key (exit 1) or bd unavailable — treat as no value
+    }
+  }
+
+  /**
+   * Write a value to the beads Dolt key-value store (`bd kv set`).
+   */
+  async kvSet(key: string, value: string): Promise<void> {
+    await this.execBd(["kv", "set", key, value]);
+  }
+
   async listComments(id: string): Promise<IssueComment[]> {
     const issue = await this.show(id);
     return (issue?.comments as IssueComment[]) ?? [];

@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import ELK, { ElkNode, ElkExtendedEdge } from "elkjs/lib/elk.bundled.js";
 import { DependencyGraph, DependencyType, Bead, BeadType, STATUS_COLORS } from "../types";
 import { Loading } from "../common/Loading";
+import { ContextMenu } from "../common/ContextMenu";
+import { buildBeadMenuItems } from "../common/beadMenu";
 import { PriorityBadge } from "../common/PriorityBadge";
 import { TypeIcon } from "../common/TypeIcon";
 import { LabelBadge } from "../common/LabelBadge";
@@ -50,6 +52,8 @@ interface GraphViewProps {
   onRemoveDependency?: (beadId: string, dependsOnId: string) => void;
   onReverseDependency?: (removeFrom: string, removeTo: string, addFrom: string, addTo: string, depType: DependencyType) => void;
   onDeleteBead?: (beadId: string) => void;
+  onUpdateBead?: (beadId: string, updates: Partial<Bead>) => void;
+  onCopyId?: (beadId: string) => void;
 }
 
 // ELK layout hook
@@ -172,6 +176,7 @@ function GraphNode({
   dropSide,
   isDragSource,
   onClick,
+  onContextMenu,
   onDragStart,
   onDragOver,
   onDragLeave,
@@ -183,6 +188,7 @@ function GraphNode({
   dropSide: DropSide | null;
   isDragSource: boolean;
   onClick: () => void;
+  onContextMenu?: (e: React.MouseEvent) => void;
   onDragStart?: () => void;
   onDragOver?: (side: DropSide) => void;
   onDragLeave?: () => void;
@@ -205,6 +211,7 @@ function GraphNode({
       className={`graph-node${highlighted ? " graph-node--highlighted" : ""}${isDragSource ? " graph-node--dragging" : ""}`}
       transform={`translate(${node.x}, ${node.y})`}
       onClick={onClick}
+      onContextMenu={onContextMenu}
       style={{ cursor: onDragStart ? "grab" : "pointer", opacity: isDragSource ? 0.4 : 1 }}
     >
       <rect
@@ -327,9 +334,12 @@ function GraphEdge({ edge }: { edge: LayoutEdge }) {
   );
 }
 
-export function GraphView({ graph, loading, error, highlightedBeadId, filterVersion, onSelectBead, onAddDependency, onReverseDependency, onDeleteBead }: GraphViewProps) {
+export function GraphView({ graph, loading, error, highlightedBeadId, filterVersion, onSelectBead, onAddDependency, onReverseDependency, onDeleteBead, onUpdateBead, onCopyId }: GraphViewProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Right-click context menu: cursor position + the bead it targets.
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; bead: Bead } | null>(null);
 
   const { nodes, edges, graphWidth, graphHeight, layoutDone, layoutId } = useElkLayout(graph);
 
@@ -554,6 +564,13 @@ export function GraphView({ graph, loading, error, highlightedBeadId, filterVers
             dropSide={dropTarget?.id === node.id ? dropTarget.side : null}
             isDragSource={dragSource === node.id}
             onClick={() => { if (!dragSource) onSelectBead(node.id); }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (!dragSource) {
+                setContextMenu({ x: e.clientX, y: e.clientY, bead: node.bead });
+              }
+            }}
             onDragStart={onAddDependency ? () => setDragSource(node.id) : undefined}
             onDragOver={dragSource && dragSource !== node.id ? (side) => setDropTarget({ id: node.id, side }) : undefined}
             onDragLeave={dragSource ? () => setDropTarget((prev) => prev?.id === node.id ? null : prev) : undefined}
@@ -579,6 +596,19 @@ export function GraphView({ graph, loading, error, highlightedBeadId, filterVers
           );
         })()}
       </svg>
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          items={buildBeadMenuItems(contextMenu.bead, {
+            onOpenDetails: onSelectBead,
+            onUpdateStatus: onUpdateBead ? (id, status) => onUpdateBead(id, { status }) : undefined,
+            onCopyId,
+            onDelete: onDeleteBead,
+          })}
+        />
+      )}
     </div>
   );
 }

@@ -41,6 +41,7 @@ import {
   TYPE_SORT_ORDER,
   getTypeSortOrder,
   sortLabels,
+  ViewToggles,
 } from "../types";
 import { transport } from "../transport";
 import { StatusBadge } from "../common/StatusBadge";
@@ -54,6 +55,8 @@ import { FilterChip } from "../common/FilterChip";
 import { Table, Kanban, Network } from "lucide-react";
 import { ErrorMessage } from "../common/ErrorMessage";
 import { GraphView } from "./GraphView";
+import { ContextMenu } from "../common/ContextMenu";
+import { buildBeadMenuItems } from "../common/beadMenu";
 import { ProjectDropdown } from "../common/ProjectDropdown";
 import { Dropdown, DropdownItem } from "../common/Dropdown";
 import { Timestamp, timestampSortingFn } from "../common/Timestamp";
@@ -73,6 +76,10 @@ interface IssuesViewProps {
   projects: BeadsProject[];
   activeProject: BeadsProject | null;
   tooltipHoverDelay: number; // 0 = disabled
+  /** Persisted per-project filter-bar toggles (null until loaded / none stored) */
+  viewToggles: ViewToggles | null;
+  /** Persist the four toggles to the project's beads Dolt kv store */
+  onSaveViewToggles: (toggles: ViewToggles) => void;
   onSelectProject: (projectId: string) => void;
   onSelectBead: (beadId: string) => void;
   onUpdateBead: (beadId: string, updates: Partial<Bead>) => void;
@@ -100,13 +107,13 @@ interface FilterPreset {
   relationship?: "blocked" | "blocking";
 }
 
+// Closed visibility is controlled by the "Closed" view toggle (not a preset),
+// so there is no "Not Closed" / "Closed" status preset here.
 const FILTER_PRESETS: FilterPreset[] = [
   { id: "all", label: "All", statuses: [] },
-  { id: "not-closed", label: "Not Closed", statuses: ["open", "in_progress", "blocked"] },
   { id: "active", label: "Active", statuses: ["in_progress", "blocked"] },
   { id: "blocked", label: "Blocked", statuses: [], relationship: "blocked" },
   { id: "blocking", label: "Blocking", statuses: [], relationship: "blocking" },
-  { id: "closed", label: "Closed", statuses: ["closed"] },
 ];
 
 const columnHelper = createColumnHelper<Bead>();
@@ -119,6 +126,8 @@ export function IssuesView({
   projects,
   activeProject,
   tooltipHoverDelay,
+  viewToggles,
+  onSaveViewToggles,
   onSelectProject,
   onSelectBead,
   onUpdateBead,
@@ -146,18 +155,17 @@ export function IssuesView({
     defaultVisibility,
   });
 
-  // Non-persisted TanStack state
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([
-    { id: "status", value: ["open", "in_progress", "blocked"] }, // Default: Not Closed
-  ]);
+  // Non-persisted TanStack state. No default status filter — closed visibility
+  // is governed by the "Closed" toggle (off by default), not a status preset.
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
   const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
   const [isResizing, setIsResizing] = useState(false);
 
   // UI state
-  const [viewMode, setViewMode] = useState<"table" | "board" | "graph">("table");
-  const [activePreset, setActivePreset] = useState<string>("not-closed");
+  const [viewMode, setViewMode] = useState<"table" | "board" | "graph">("board");
+  const [activePreset, setActivePreset] = useState<string>("all");
   const [relationshipFilter, setRelationshipFilter] = useState<"blocked" | "blocking" | null>(null);
   // Increments on any filter change so GraphView can auto-fit
   const filterVersionRef = useRef(0);
@@ -168,18 +176,52 @@ export function IssuesView({
   const [filterBarOpen, setFilterBarOpen] = useState(true);
   const [filterMenuOpen, setFilterMenuOpen] = useState<string | null>(null);
   const [columnMenuOpen, setColumnMenuOpen] = useState(false);
-  // Epic view state (board mode only)
-  const hasOpenEpics = useMemo(() => beads.some((b) => b.type === "epic" && b.status !== "closed"), [beads]);
-  const [epicViewEnabled, setEpicViewEnabled] = useState(true);
-  // Default epic column off when no open epics (only on initial data load)
-  const epicInitRef = useRef(false);
-  useEffect(() => {
-    if (!epicInitRef.current && beads.length > 0) {
-      epicInitRef.current = true;
-      if (!hasOpenEpics) setEpicViewEnabled(false);
-    }
-  }, [beads, hasOpenEpics]);
+  // Filter-bar view toggles. All four default OFF and are seeded from the
+  // per-project persisted prefs once they arrive (see the effect below).
+  const [epicViewEnabled, setEpicViewEnabled] = useState(false); // Epics (board only)
+  const [showClosed, setShowClosed] = useState(false);           // Closed (all views + board column)
+  const [showBugzilla, setShowBugzilla] = useState(false);       // Bugzilla source (all views)
+  const [showJira, setShowJira] = useState(false);               // Jira source (all views)
   const [selectedEpicIds, setSelectedEpicIds] = useState<Set<string>>(new Set());
+
+  // Seed the four toggles from the project's persisted prefs whenever they
+  // change (initial load and on project switch). null → keep the all-off
+  // defaults. This only mirrors stored state into local state; it never calls
+  // onSaveViewToggles, so loading does not echo a save back.
+  useEffect(() => {
+    setEpicViewEnabled(!!viewToggles?.epics);
+    setShowClosed(!!viewToggles?.closed);
+    setShowBugzilla(!!viewToggles?.bugzilla);
+    setShowJira(!!viewToggles?.jira);
+  }, [viewToggles]);
+
+  // Persist the current four toggles, applying `next` on top. Called from each
+  // toggle's onClick (user intent), never from the seeding effect above.
+  const persistToggles = useCallback(
+    (next: Partial<ViewToggles>) => {
+      onSaveViewToggles({
+        epics: epicViewEnabled,
+        closed: showClosed,
+        bugzilla: showBugzilla,
+        jira: showJira,
+        ...next,
+      });
+    },
+    [onSaveViewToggles, epicViewEnabled, showClosed, showBugzilla, showJira]
+  );
+
+  // Global bead list feeding every view; drops sources whose toggle is off and
+  // hides closed unless the Closed toggle is on.
+  const visibleBeads = useMemo(
+    () =>
+      beads.filter(
+        (b) =>
+          (b.source !== "bugzilla" || showBugzilla) &&
+          (b.source !== "jira" || showJira) &&
+          (b.status !== "closed" || showClosed)
+      ),
+    [beads, showBugzilla, showJira, showClosed]
+  );
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const filterMenuRef = useRef<HTMLDivElement>(null);
   const columnMenuRef = useRef<HTMLTableCellElement>(null);
@@ -430,7 +472,7 @@ export function IssuesView({
   );
 
   const table = useReactTable({
-    data: beads,
+    data: visibleBeads,
     columns,
     state: {
       sorting,
@@ -468,6 +510,18 @@ export function IssuesView({
     setCopiedId(beadId);
     setTimeout(() => setCopiedId(null), 1500);
   }, []);
+
+  // Right-click context menu (table rows). Kanban/graph manage their own.
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; bead: Bead } | null>(null);
+  const beadMenuHandlers = useMemo(
+    () => ({
+      onOpenDetails: (id: string) => onSelectBead(id),
+      onUpdateStatus: (id: string, status: BeadStatus) => onUpdateBead(id, { status }),
+      onCopyId: handleCopyId,
+      onDelete: (id: string) => transport.postMessage({ type: "deleteBead", beadId: id }),
+    }),
+    [onSelectBead, onUpdateBead, handleCopyId]
+  );
 
   // Filter helpers
   const statusFilter = (columnFilters.find((f) => f.id === "status")?.value || []) as BeadStatus[];
@@ -618,13 +672,13 @@ export function IssuesView({
   // Unfiltered counts per status (for kanban empty state messaging)
   const unfilteredStatusCounts = useMemo(() => {
     const counts: Record<BeadStatus, number> = { open: 0, in_progress: 0, blocked: 0, closed: 0 };
-    for (const bead of beads) {
+    for (const bead of visibleBeads) {
       if (bead.status in counts) {
         counts[bead.status as BeadStatus]++;
       }
     }
     return counts;
-  }, [beads]);
+  }, [visibleBeads]);
 
   // IDs of beads that block other beads (used by "Blocking" filter)
   const blockingIds = useMemo(() => {
@@ -659,12 +713,12 @@ export function IssuesView({
   }, [table.getFilteredRowModel().rows, relationshipFilter, blockingIds, blockedIds]);
 
   const filteredCount = filteredBeads.length;
-  const totalCount = beads.length;
+  const totalCount = visibleBeads.length;
 
   // Build dependency graph from filtered beads. For relationship filters
   // (blocked/blocking), include connected beads for context in the graph.
   const dependencyGraph = useMemo((): DependencyGraph => {
-    const beadMap = new Map(beads.map((b) => [b.id, b]));
+    const beadMap = new Map(visibleBeads.map((b) => [b.id, b]));
     const primaryIds = new Set(filteredBeads.map((b) => b.id));
 
     // For relationship filters, add connected beads so edges remain visible
@@ -721,7 +775,7 @@ export function IssuesView({
     }
 
     return { nodes: graphBeads, edges };
-  }, [beads, filteredBeads, relationshipFilter]);
+  }, [visibleBeads, filteredBeads, relationshipFilter]);
 
   // Group table rows so blocked beads appear under their blockers
   const groupedTableRows = useMemo(() => {
@@ -1059,32 +1113,70 @@ export function IssuesView({
             </button>
           )}
 
-          {/* Epic toggle — board mode only, pinned right */}
-          {viewMode === "board" && (
-            <div className="filter-bar-epic-group">
-              <span className="filter-bar-separator" />
-              <button
-                className={`kanban-epic-toggle ${epicViewEnabled ? "active" : ""}`}
-                onClick={() => {
-                  setEpicViewEnabled((v) => !v);
-                  if (epicViewEnabled) setSelectedEpicIds(new Set());
-                }}
-                title={epicViewEnabled ? "Hide epic column" : "Show epic column"}
-              >
-                <TypeIcon type="epic" size={12} />
-                <span>Epics</span>
-              </button>
-              {epicViewEnabled && selectedEpicIds.size > 0 && (
+          {/* Right-pinned toggles: Epics (board only), then Closed / Bugzilla /
+              Jira (all views). All persist per-project via onSaveViewToggles. */}
+          <div className="filter-bar-epic-group">
+            <span className="filter-bar-separator" />
+            {viewMode === "board" && (
+              <>
                 <button
-                  className="kanban-epic-clear"
-                  onClick={() => setSelectedEpicIds(new Set())}
-                  title="Clear epic selection"
+                  className={`kanban-epic-toggle ${epicViewEnabled ? "active" : ""}`}
+                  onClick={() => {
+                    const nv = !epicViewEnabled;
+                    setEpicViewEnabled(nv);
+                    if (!nv) setSelectedEpicIds(new Set());
+                    persistToggles({ epics: nv });
+                  }}
+                  title={epicViewEnabled ? "Hide epic column" : "Show epic column"}
                 >
-                  Clear
+                  <TypeIcon type="epic" size={12} />
+                  <span>Epics</span>
                 </button>
-              )}
-            </div>
-          )}
+                {epicViewEnabled && selectedEpicIds.size > 0 && (
+                  <button
+                    className="kanban-epic-clear"
+                    onClick={() => setSelectedEpicIds(new Set())}
+                    title="Clear epic selection"
+                  >
+                    Clear
+                  </button>
+                )}
+              </>
+            )}
+            <button
+              className={`kanban-epic-toggle ${showClosed ? "active" : ""}`}
+              onClick={() => {
+                const nv = !showClosed;
+                setShowClosed(nv);
+                persistToggles({ closed: nv });
+              }}
+              title={showClosed ? "Hide closed issues" : "Show closed issues"}
+            >
+              <span>Closed</span>
+            </button>
+            <button
+              className={`kanban-epic-toggle ${showBugzilla ? "active" : ""}`}
+              onClick={() => {
+                const nv = !showBugzilla;
+                setShowBugzilla(nv);
+                persistToggles({ bugzilla: nv });
+              }}
+              title={showBugzilla ? "Hide Bugzilla issues" : "Show Bugzilla issues"}
+            >
+              <span>Bugzilla</span>
+            </button>
+            <button
+              className={`kanban-epic-toggle ${showJira ? "active" : ""}`}
+              onClick={() => {
+                const nv = !showJira;
+                setShowJira(nv);
+                persistToggles({ jira: nv });
+              }}
+              title={showJira ? "Hide Jira issues" : "Show Jira issues"}
+            >
+              <span>Jira</span>
+            </button>
+          </div>
         </div>
       )}
 
@@ -1240,6 +1332,11 @@ export function IssuesView({
                     <tr
                       key={row.id}
                       onClick={() => onSelectBead(row.original.id)}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setContextMenu({ x: e.clientX, y: e.clientY, bead: row.original });
+                      }}
                       className={`bead-row ${row.original.id === selectedBeadId ? "selected" : ""} ${indentLevel > 0 ? "bead-row--nested" : ""}`}
                       onMouseEnter={(e) => handleRowMouseEnter(e, row.original.id)}
                       onMouseLeave={handleRowMouseLeave}
@@ -1276,7 +1373,7 @@ export function IssuesView({
       {!error && viewMode === "board" && (
         <KanbanBoard
           beads={filteredBeads}
-          allBeads={beads}
+          allBeads={visibleBeads}
           selectedBeadId={selectedBeadId}
           onSelectBead={onSelectBead}
           onUpdateBead={onUpdateBead}
@@ -1285,6 +1382,7 @@ export function IssuesView({
           sortOrder={kanbanSortOrder}
           onSortOrderChange={setKanbanSortOrder}
           epicViewEnabled={epicViewEnabled}
+          showClosedColumn={showClosed}
           selectedEpicIds={selectedEpicIds}
           onSelectedEpicIdsChange={setSelectedEpicIds}
           onAddDependency={(sourceId, targetId, dependencyType, reverse) =>
@@ -1293,6 +1391,7 @@ export function IssuesView({
           onDeleteBead={(beadId) =>
             transport.postMessage({ type: "deleteBead", beadId })
           }
+          onCopyId={handleCopyId}
         />
       )}
 
@@ -1317,6 +1416,18 @@ export function IssuesView({
           onDeleteBead={(beadId) =>
             transport.postMessage({ type: "deleteBead", beadId })
           }
+          onUpdateBead={onUpdateBead}
+          onCopyId={handleCopyId}
+        />
+      )}
+
+      {/* Table row context menu */}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          items={buildBeadMenuItems(contextMenu.bead, beadMenuHandlers)}
         />
       )}
 

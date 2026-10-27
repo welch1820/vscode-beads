@@ -44,7 +44,7 @@ export interface Bead {
   estimatedMinutes?: number;
   externalRef?: string;
   bugzillaId?: number;
-  source?: "beads" | "bugzilla";
+  source?: "beads" | "bugzilla" | "jira";
   createdAt?: string;
   updatedAt?: string;
   closedAt?: string;
@@ -81,6 +81,15 @@ export interface WebviewSettings {
   tooltipHoverDelay: number; // 0 = disabled
 }
 
+// Per-project filter-bar view toggles, persisted in the beads Dolt key-value
+// store (key `ui.view-toggles`) so they follow the project across clones.
+export interface ViewToggles {
+  epics: boolean;
+  closed: boolean;
+  bugzilla: boolean;
+  jira: boolean;
+}
+
 // Dependency graph data
 export interface DependencyGraph {
   nodes: Bead[];
@@ -102,6 +111,7 @@ export type ExtensionMessage =
   | { type: "setError"; error: string | null }
   | { type: "setSettings"; settings: WebviewSettings }
   | { type: "setTeamMembers"; members: string[] }
+  | { type: "setViewToggles"; toggles: ViewToggles | null }
   | { type: "refresh" }
   | { type: "showToast"; text: string };
 
@@ -116,11 +126,13 @@ export type WebviewMessage =
   | { type: "deleteBead"; beadId: string }
   | { type: "addDependency"; beadId: string; targetId: string; dependencyType: DependencyType; reverse: boolean }
   | { type: "removeDependency"; beadId: string; dependsOnId: string }
+  | { type: "reverseDependency"; removeFrom: string; removeTo: string; addFrom: string; addTo: string; depType: DependencyType }
   | { type: "addComment"; beadId: string; text: string }
   | { type: "openBeadDetails"; beadId: string }
   | { type: "viewInGraph"; beadId: string }
   | { type: "copyBeadId"; beadId: string }
-  | { type: "openFile"; filePath: string; line?: number };
+  | { type: "openFile"; filePath: string; line?: number }
+  | { type: "saveViewToggles"; toggles: ViewToggles };
 
 // Human-readable labels
 export const PRIORITY_LABELS: Record<BeadPriority, string> = {
