@@ -7,7 +7,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Bead, BeadStatus, BeadType, STATUS_LABELS, STATUS_COLORS, TYPE_COLORS } from "../types";
+import { Bead, BeadStatus, BeadType, DependencyType, STATUS_LABELS, STATUS_COLORS, TYPE_COLORS } from "../types";
 import { TypeIcon } from "../common/TypeIcon";
 import { PriorityBadge } from "../common/PriorityBadge";
 import { LabelBadge } from "../common/LabelBadge";
@@ -16,6 +16,8 @@ import { BlockedBadge } from "../common/BlockedBadge";
 import { SourceBadge } from "../common/SourceBadge";
 import { groupByBlockers } from "../common/groupByBlockers";
 import { buildEpicChildIds, toggleEpicSelection } from "../common/epic-filter";
+import { ContextMenu } from "../common/ContextMenu";
+import { buildBeadMenuItems } from "../common/beadMenu";
 
 interface KanbanBoardProps {
   beads: Bead[];
@@ -34,20 +36,38 @@ interface KanbanBoardProps {
   onSortOrderChange?: (sortOrder: Record<string, number>) => void;
   /** Whether the epic column is visible (controlled by parent) */
   epicViewEnabled?: boolean;
+  /** Whether the closed column is visible (controlled by the Closed toggle) */
+  showClosedColumn?: boolean;
   /** IDs of currently selected epics for filtering (controlled by parent) */
   selectedEpicIds?: Set<string>;
   /** Callback when epic selection changes */
   onSelectedEpicIdsChange?: (ids: Set<string>) => void;
   /** Callback when a bead is dropped onto an epic (creates dependency) */
-  onAddDependency?: (sourceId: string, targetId: string, dependencyType: string, reverse: boolean) => void;
+  onAddDependency?: (sourceId: string, targetId: string, dependencyType: DependencyType, reverse: boolean) => void;
   /** Callback to delete a bead (caller should prompt for confirmation) */
   onDeleteBead?: (beadId: string) => void;
+  /** Callback to copy a bead ID to the clipboard */
+  onCopyId?: (beadId: string) => void;
 }
 
 const ALL_COLUMNS: BeadStatus[] = ["open", "in_progress", "blocked", "closed"];
 const COLUMNS: BeadStatus[] = ["open", "in_progress", "closed"];
 
-export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onUpdateBead, hasActiveFilters, unfilteredCounts, sortOrder = {}, onSortOrderChange, epicViewEnabled = false, selectedEpicIds: selectedEpicIdsProp, onSelectedEpicIdsChange, onAddDependency, onDeleteBead }: KanbanBoardProps): React.ReactElement {
+export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onUpdateBead, hasActiveFilters, unfilteredCounts, sortOrder = {}, onSortOrderChange, epicViewEnabled = false, showClosedColumn = false, selectedEpicIds: selectedEpicIdsProp, onSelectedEpicIdsChange, onAddDependency, onDeleteBead, onCopyId }: KanbanBoardProps): React.ReactElement {
+  // Right-click context menu: cursor position + the bead it targets.
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; bead: Bead } | null>(null);
+
+  const openContextMenu = (e: React.MouseEvent, bead: Bead) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContextMenu({ x: e.clientX, y: e.clientY, bead });
+  };
+  // Rendered status columns: the closed column appears only when the Closed
+  // toggle is on (mirrors the epic column being gated by epicViewEnabled).
+  const columns = useMemo(
+    () => (showClosedColumn ? COLUMNS : COLUMNS.filter((c) => c !== "closed")),
+    [showClosedColumn]
+  );
   // Track which columns are collapsed (blocked is collapsed by default since no beads use status:blocked)
   const [collapsedColumns, setCollapsedColumns] = useState<Set<BeadStatus>>(new Set(["blocked"]));
   // Track which column is being dragged over
@@ -432,7 +452,7 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
     const result = {} as Record<BeadStatus, Bead[]>;
     const levels = new Map<string, number>();
 
-    for (const status of COLUMNS) {
+    for (const status of columns) {
       const sorted = effectiveBeads
         .filter((b) => b.status === status)
         .sort((a, b) => {
@@ -454,7 +474,7 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
     }
 
     return { grouped: result, indentLevels: levels };
-  }, [effectiveBeads, effectiveSortOrder]);
+  }, [effectiveBeads, effectiveSortOrder, columns]);
 
   return (
     <div className="kanban-wrapper">
@@ -499,6 +519,7 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
                   draggable={!!onUpdateBead}
                   onDragStart={(e) => handleDragStart(e, epic.id)}
                   onDragEnd={handleDragEnd}
+                  onContextMenu={(e) => openContextMenu(e, epic)}
                   onClick={(e) => {
                     if (e.metaKey || e.ctrlKey) {
                       // Cmd/Ctrl+click: select in detail panel
@@ -573,7 +594,7 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
             </div>
           </div>
         )}
-        {COLUMNS.map((status) => {
+        {columns.map((status) => {
           const isCollapsed = collapsedColumns.has(status);
           const items = grouped[status] || [];
           const isDragOver = dragOverColumn === status;
@@ -612,6 +633,7 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
                         onDragEnd={handleDragEnd}
                         onDragOver={(e) => handleCardDragOver(e, status, idx)}
                         onClick={() => onSelectBead(bead.id)}
+                        onContextMenu={(e) => openContextMenu(e, bead)}
                       >
                         <div className="kanban-card-header">
                           <TypeIcon type={(bead.type || "task") as BeadType} size={12} />
@@ -692,6 +714,19 @@ export function KanbanBoard({ beads, allBeads, selectedBeadId, onSelectBead, onU
           />
         </svg>,
         document.body
+      )}
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={() => setContextMenu(null)}
+          items={buildBeadMenuItems(contextMenu.bead, {
+            onOpenDetails: onSelectBead,
+            onUpdateStatus: onUpdateBead ? (id, status) => onUpdateBead(id, { status }) : undefined,
+            onCopyId,
+            onDelete: onDeleteBead,
+          })}
+        />
       )}
     </div>
   );

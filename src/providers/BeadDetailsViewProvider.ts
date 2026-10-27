@@ -15,6 +15,7 @@ import { WebviewToExtensionMessage, Bead, BeadStatus, issueToWebviewBead } from 
 import { Logger } from "../utils/logger";
 import { handleStartWork } from "../utils/startWork";
 import { BugzillaClient, BugzillaConfig, resolveConfig } from "../backend/BugzillaClient";
+import { JiraClient, JiraConfig, resolveConfig as resolveJiraConfig } from "../backend/JiraClient";
 
 export class BeadDetailsViewProvider extends BaseViewProvider {
   protected readonly viewType = "beadsDetails";
@@ -45,9 +46,14 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
     // Update context for conditional menu items
     vscode.commands.executeCommand("setContext", "beads.hasSelectedBead", true);
 
-    // Auto-expand the details panel
-    if (this._view) {
+    // Auto-expand the details panel. When the view is already resolved and
+    // visible, show(true) keeps focus where it is. When it's collapsed or has
+    // never been opened (_view undefined), show() is a no-op, so fall back to
+    // the generated focus command, which reliably reveals and expands it.
+    if (this._view && this._view.visible) {
       this._view.show(true); // true = preserve focus
+    } else {
+      await vscode.commands.executeCommand("beadsDetails.focus");
     }
 
     await this.loadData();
@@ -103,6 +109,12 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
     // Bugzilla bugs (bz-NNN) are fetched directly from Bugzilla, not bd
     if (this.currentBeadId.startsWith("bz-")) {
       await this.loadBugzillaBead(thisRequest);
+      return;
+    }
+
+    // Jira issues (jira-KEY) are fetched directly from Jira, not bd
+    if (this.currentBeadId.startsWith("jira-")) {
+      await this.loadJiraBead(thisRequest);
       return;
     }
 
@@ -254,6 +266,81 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
     }
   }
 
+  private getJiraConfig(): JiraConfig {
+    const config = vscode.workspace.getConfiguration("beads");
+    return resolveJiraConfig({
+      url: config.get<string>("jira.url", ""),
+      email: config.get<string>("jira.email", ""),
+      apiToken: config.get<string>("jira.apiToken", ""),
+    });
+  }
+
+  /**
+   * Apply a status change to a Jira issue via a workflow transition, then
+   * reload the detail. Only status updates are supported. Reloading on both
+   * success and failure keeps the view's status in sync with Jira (reverting
+   * an optimistic dropdown change if the transition failed).
+   */
+  private async handleJiraUpdate(beadId: string, updates: Partial<Bead>): Promise<void> {
+    if (updates.status === undefined) {
+      vscode.window.showWarningMessage("Only status changes can be synced to Jira.");
+      return;
+    }
+
+    const jiraConfig = this.getJiraConfig();
+    if (!JiraClient.isConfigured(jiraConfig)) {
+      vscode.window.showErrorMessage("Jira is not configured.");
+      return;
+    }
+
+    const key = beadId.replace("jira-", "");
+    try {
+      await new JiraClient(jiraConfig).transitionIssue(key, updates.status);
+    } catch (err) {
+      vscode.window.showErrorMessage(`Failed to update Jira issue: ${err}`);
+    }
+    await this.loadData();
+  }
+
+  private async loadJiraBead(thisRequest: number): Promise<void> {
+    this.setLoading(true);
+    this.setError(null);
+
+    try {
+      const jiraConfig = this.getJiraConfig();
+      if (!JiraClient.isConfigured(jiraConfig)) {
+        this.setError("Jira not configured");
+        this.postMessage({ type: "setBead", bead: null });
+        return;
+      }
+
+      const key = this.currentBeadId!.replace("jira-", "");
+      const bead = await new JiraClient(jiraConfig).fetchIssue(key);
+
+      if (thisRequest !== this.loadSequence) {
+        return;
+      }
+
+      if (bead) {
+        this.currentBeadStatus = bead.status as BeadStatus ?? null;
+        this.postMessage({ type: "setBead", bead });
+      } else {
+        this.setError("Jira issue not found");
+        this.postMessage({ type: "setBead", bead: null });
+      }
+    } catch (err) {
+      if (thisRequest !== this.loadSequence) {
+        return;
+      }
+      this.setError(String(err));
+      this.postMessage({ type: "setBead", bead: null });
+    } finally {
+      if (thisRequest === this.loadSequence) {
+        this.setLoading(false);
+      }
+    }
+  }
+
   /**
    * Override refresh to invalidate caches before reloading.
    * Called on mutation events — ensures fresh list/blocked data.
@@ -274,6 +361,18 @@ export class BeadDetailsViewProvider extends BaseViewProvider {
     switch (message.type) {
       case "updateBead":
         this.log.debug(`Updating bead ${message.beadId}: ${JSON.stringify(message.updates)}`);
+
+        if (message.beadId.startsWith("bz-")) {
+          vscode.window.showWarningMessage("Bugzilla issues are read-only in this view.");
+          break;
+        }
+
+        // Jira issues accept status changes via a workflow transition; other
+        // fields are not synced. Mirrors BeadsPanelViewProvider.handleJiraUpdate.
+        if (message.beadId.startsWith("jira-")) {
+          await this.handleJiraUpdate(message.beadId, message.updates);
+          break;
+        }
 
         try {
           // Map webview field names (camelCase) to daemon API field names (snake_case)

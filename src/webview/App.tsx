@@ -12,6 +12,7 @@ import {
   BeadsSummary,
   DependencyGraph,
   ExtensionMessage,
+  ViewToggles,
   WebviewSettings,
 } from "./types";
 import { transport } from "./transport";
@@ -36,6 +37,7 @@ interface AppState {
   error: string | null;
   settings: WebviewSettings;
   teamMembers: string[];
+  viewToggles: ViewToggles | null;
 }
 
 const initialState: AppState = {
@@ -52,6 +54,7 @@ const initialState: AppState = {
   error: null,
   settings: { renderMarkdown: true, userId: "", tooltipHoverDelay: 1000 },
   teamMembers: [],
+  viewToggles: null,
 };
 
 export function App(): React.ReactElement {
@@ -100,6 +103,9 @@ export function App(): React.ReactElement {
         break;
       case "setTeamMembers":
         setState((prev) => ({ ...prev, teamMembers: message.members }));
+        break;
+      case "setViewToggles":
+        setState((prev) => ({ ...prev, viewToggles: message.toggles }));
         break;
       case "refresh":
         transport.postMessage({ type: "refresh" });
@@ -161,6 +167,10 @@ export function App(): React.ReactElement {
             projects={state.projects}
             activeProject={state.project}
             tooltipHoverDelay={state.settings.tooltipHoverDelay}
+            viewToggles={state.viewToggles}
+            onSaveViewToggles={(toggles) =>
+              transport.postMessage({ type: "saveViewToggles", toggles })
+            }
             onSelectProject={(projectId) =>
               transport.postMessage({ type: "selectProject", projectId })
             }
@@ -237,6 +247,7 @@ export function App(): React.ReactElement {
             loading={state.loading}
             error={state.error}
             highlightedBeadId={state.highlightedBeadId}
+            filterVersion={0}
             onSelectBead={(beadId) =>
               transport.postMessage({ type: "openBeadDetails", beadId })
             }

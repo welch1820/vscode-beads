@@ -56,7 +56,7 @@ export interface Bead {
   estimatedMinutes?: number; // Time estimate
   externalRef?: string; // External reference e.g., "gh-9", "jira-ABC"
   bugzillaId?: number; // Bugzilla bug ID (from metadata)
-  source?: "beads" | "bugzilla"; // Where this bead came from
+  source?: "beads" | "bugzilla" | "jira"; // Where this bead came from
   createdAt?: string; // ISO/RFC3339 timestamps
   updatedAt?: string;
   closedAt?: string;
@@ -148,6 +148,15 @@ export interface WebviewSettings {
   tooltipHoverDelay: number; // 0 = disabled
 }
 
+// Per-project filter-bar view toggles, persisted in the beads Dolt key-value
+// store (key `ui.view-toggles`) so they follow the project across clones.
+export interface ViewToggles {
+  epics: boolean;
+  closed: boolean;
+  bugzilla: boolean;
+  jira: boolean;
+}
+
 // Placeholder for graph view (not yet implemented)
 export interface DependencyGraph {
   nodes: Bead[];
@@ -169,6 +178,7 @@ export type ExtensionToWebviewMessage =
   | { type: "setError"; error: string | null }
   | { type: "setSettings"; settings: WebviewSettings }
   | { type: "setTeamMembers"; members: string[] }
+  | { type: "setViewToggles"; toggles: ViewToggles | null }
   | { type: "refresh" };
 
 // Messages sent from webview to extension
@@ -187,7 +197,8 @@ export type WebviewToExtensionMessage =
   | { type: "openBeadDetails"; beadId: string }
   | { type: "viewInGraph"; beadId: string }
   | { type: "copyBeadId"; beadId: string }
-  | { type: "openFile"; filePath: string; line?: number };
+  | { type: "openFile"; filePath: string; line?: number }
+  | { type: "saveViewToggles"; toggles: ViewToggles };
 
 // CLI command result
 export interface CommandResult<T = unknown> {

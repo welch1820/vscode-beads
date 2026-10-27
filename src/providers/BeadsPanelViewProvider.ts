@@ -14,6 +14,7 @@ import { BaseViewProvider } from "./BaseViewProvider";
 import { BeadsProjectManager } from "../backend/BeadsProjectManager";
 import { WebviewToExtensionMessage, Bead, issueToWebviewBead } from "../backend/types";
 import { BugzillaClient, BugzillaConfig, resolveConfig } from "../backend/BugzillaClient";
+import { JiraClient, JiraConfig, resolveConfig as resolveJiraConfig } from "../backend/JiraClient";
 import { Logger } from "../utils/logger";
 import { handleStartWork } from "../utils/startWork";
 
@@ -21,6 +22,7 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
   protected readonly viewType = "beadsPanel";
   private selectedBeadId: string | null = null;
   private cachedBugzillaBeads: Bead[] = [];
+  private cachedJiraBeads: Bead[] = [];
 
   constructor(
     extensionUri: vscode.Uri,
@@ -48,6 +50,49 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
         || process.env.USER || "",
     };
     return resolveConfig(vsCodeConfig);
+  }
+
+  private getJiraConfig(): JiraConfig {
+    const config = vscode.workspace.getConfiguration("beads");
+    return resolveJiraConfig({
+      url: config.get<string>("jira.url", ""),
+      email: config.get<string>("jira.email", ""),
+      apiToken: config.get<string>("jira.apiToken", ""),
+    });
+  }
+
+  /**
+   * Apply a status change to a Jira issue via a workflow transition.
+   * Only status updates are supported; other fields are ignored.
+   */
+  private async handleJiraUpdate(beadId: string, updates: Partial<Bead>): Promise<void> {
+    if (updates.status === undefined) {
+      vscode.window.showWarningMessage("Only status changes can be synced to Jira.");
+      return;
+    }
+
+    const jiraConfig = this.getJiraConfig();
+    if (!JiraClient.isConfigured(jiraConfig)) {
+      vscode.window.showErrorMessage("Jira is not configured.");
+      await this.loadData();
+      return;
+    }
+
+    const key = beadId.replace("jira-", "");
+    try {
+      const jira = new JiraClient(jiraConfig);
+      await jira.transitionIssue(key, updates.status);
+      // Refresh the single issue so the cache reflects the new status immediately.
+      const updated = await jira.fetchIssue(key);
+      if (updated) {
+        this.cachedJiraBeads = this.cachedJiraBeads.map((b) => (b.id === beadId ? updated : b));
+      }
+    } catch (err) {
+      vscode.window.showErrorMessage(`Failed to update Jira issue: ${err}`);
+    }
+    // Reload either way — on success to show the new status, on failure to
+    // revert the board's optimistic move back to the real status.
+    await this.loadData();
   }
 
   protected async loadData(): Promise<void> {
@@ -92,25 +137,37 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
         }
       }
 
-      // Send beads immediately with cached Bugzilla bugs to prevent flashing
-      this.postMessage({ type: "setBeads", beads: [...beads, ...this.cachedBugzillaBeads] });
+      // Send beads immediately with cached external issues to prevent flashing
+      this.postMessage({ type: "setBeads", beads: [...beads, ...this.cachedBugzillaBeads, ...this.cachedJiraBeads] });
       this.log.info(`Sent ${beads.length} beads to webview`);
       this.setLoading(false);
 
-      // Refresh Bugzilla bugs asynchronously and update cache
+      // Refresh external sources (Bugzilla + Jira) concurrently, then re-send once.
       const bzConfig = this.getBugzillaConfig();
-      if (BugzillaClient.isConfigured(bzConfig)) {
-        new BugzillaClient(bzConfig).fetchAssignedBugs().then((bzBeads) => {
-          const hadCached = this.cachedBugzillaBeads.length > 0;
-          this.cachedBugzillaBeads = bzBeads;
-          // Re-send if fresh data differs from what we sent with the cache
-          if (bzBeads.length > 0 || hadCached) {
-            this.postMessage({ type: "setBeads", beads: [...beads, ...bzBeads] });
-          }
-        }).catch((err) => {
-          this.log.warn(`Bugzilla fetch failed: ${err}`);
-        });
-      }
+      const jiraConfig = this.getJiraConfig();
+      const bzPromise = BugzillaClient.isConfigured(bzConfig)
+        ? new BugzillaClient(bzConfig).fetchAssignedBugs().catch((err) => {
+            this.log.warn(`Bugzilla fetch failed: ${err}`);
+            return null;
+          })
+        : Promise.resolve(null);
+      const jiraPromise = JiraClient.isConfigured(jiraConfig)
+        ? new JiraClient(jiraConfig).fetchAssignedIssues().catch((err) => {
+            this.log.warn(`Jira fetch failed: ${err}`);
+            return null;
+          })
+        : Promise.resolve(null);
+
+      Promise.all([bzPromise, jiraPromise]).then(([bzBeads, jiraBeads]) => {
+        const hadCached = this.cachedBugzillaBeads.length > 0 || this.cachedJiraBeads.length > 0;
+        // Keep the previous cache when a fetch failed (null); replace it on success.
+        if (bzBeads) this.cachedBugzillaBeads = bzBeads;
+        if (jiraBeads) this.cachedJiraBeads = jiraBeads;
+        const fetchedAny = (bzBeads?.length ?? 0) > 0 || (jiraBeads?.length ?? 0) > 0;
+        if (fetchedAny || hadCached) {
+          this.postMessage({ type: "setBeads", beads: [...beads, ...this.cachedBugzillaBeads, ...this.cachedJiraBeads] });
+        }
+      });
     } catch (err) {
       this.setError(String(err));
       this.postMessage({ type: "setBeads", beads: [] });
@@ -130,7 +187,11 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
     switch (message.type) {
       case "updateBead":
         if (message.beadId.startsWith("bz-")) {
-          vscode.window.showWarningMessage("Bugzilla bugs are read-only in this view.");
+          vscode.window.showWarningMessage("Bugzilla issues are read-only in this view.");
+          break;
+        }
+        if (message.beadId.startsWith("jira-")) {
+          await this.handleJiraUpdate(message.beadId, message.updates);
           break;
         }
         try {
@@ -154,7 +215,10 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
           if (wasOpen) {
             handleStartWork(message.beadId, client, this.log);
           }
-          // Data will refresh via mutation events
+          // Refresh immediately — fs.watch mutation events don't fire for
+          // central Dolt server changes, so context-menu status changes
+          // wouldn't otherwise appear until the next poll.
+          await this.loadData();
         } catch (err) {
           vscode.window.showErrorMessage(`Failed to update bead: ${err}`);
         }
@@ -210,8 +274,8 @@ export class BeadsPanelViewProvider extends BaseViewProvider {
         break;
 
       case "deleteBead": {
-        if (message.beadId.startsWith("bz-")) {
-          vscode.window.showWarningMessage("Bugzilla bugs cannot be deleted from this view.");
+        if (message.beadId.startsWith("bz-") || message.beadId.startsWith("jira-")) {
+          vscode.window.showWarningMessage("Bugzilla and Jira issues cannot be deleted from this view.");
           break;
         }
         const confirm = await vscode.window.showWarningMessage(

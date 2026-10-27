@@ -9,9 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Bugzilla toggle in Issues filter bar (all views); Bugzilla-sourced issues hidden by default (`vsbeads-ae7`)
+- Jira integration: fetches your assigned open issues from the configured Jira Cloud instance; Jira toggle in Issues filter bar, shown by default (`vsbeads-8si`)
+- Dragging a Jira card between kanban columns now performs the matching Jira workflow transition (`vsbeads-vwb`)
+- Right-click context menu on bead cards (kanban, graph, table) with state-aware actions: Start/Stop work, Close/Reopen, Open details, Copy ID, Delete (`vsbeads-82b`)
+- Detail panel status dropdown now transitions Jira issues instead of being read-only (`vsbeads-vwb`)
+
 ### Fixed
 
+- Context-menu status changes (Start/Stop work, Close, Reopen) now refresh the view immediately instead of waiting for the next poll (`vsbeads-b4m`)
+- "Open details" from a context menu now reveals and expands the Bead Details view when it is collapsed or unopened (`vsbeads-r0r`)
+
 ### Changed
+
+- Issues panel defaults to board (swimlane) view instead of table (`vsbeads-6sq`)
 
 ## [0.12.0] - 2026-01-31
 

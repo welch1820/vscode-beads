@@ -573,6 +573,47 @@ describe("BeadsCLIClient", () => {
     });
   });
 
+  // ── kv (key-value store) ─────────────────────────────────────
+
+  describe("kvGet", () => {
+    it("calls bd kv get <key> --json and returns the value", async () => {
+      const promise = client.kvGet("ui.view-toggles");
+      resolveWith({ found: true, value: '{"epics":true}' });
+      const result = await promise;
+
+      expect(lastSpawnArgs!.args).toEqual(["kv", "get", "ui.view-toggles", "--json"]);
+      expect(result).toBe('{"epics":true}');
+    });
+
+    it("returns null when the key is unset (bd exits non-zero)", async () => {
+      const promise = client.kvGet("ui.missing");
+      rejectWith("", 1);
+      await expect(promise).resolves.toBeNull();
+    });
+
+    it("returns null when bd reports found:false", async () => {
+      const promise = client.kvGet("ui.missing");
+      resolveWith({ found: false, value: "" });
+      await expect(promise).resolves.toBeNull();
+    });
+
+    it("returns null when bd is not found (ENOENT), never throws", async () => {
+      const promise = client.kvGet("ui.view-toggles");
+      rejectNotFound();
+      await expect(promise).resolves.toBeNull();
+    });
+  });
+
+  describe("kvSet", () => {
+    it("calls bd kv set <key> <value>", async () => {
+      const promise = client.kvSet("ui.view-toggles", '{"closed":true}');
+      resolveEmpty();
+      await promise;
+
+      expect(lastSpawnArgs!.args).toEqual(["kv", "set", "ui.view-toggles", '{"closed":true}']);
+    });
+  });
+
   // ── dispose ──────────────────────────────────────────────────
 
   describe("dispose", () => {

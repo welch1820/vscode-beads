@@ -12,9 +12,15 @@ import * as vscode from "vscode";
 import { BeadsProjectManager } from "../backend/BeadsProjectManager";
 import {
   ExtensionToWebviewMessage,
+  ViewToggles,
   WebviewToExtensionMessage,
 } from "../backend/types";
 import { Logger } from "../utils/logger";
+
+// beads Dolt key-value prefix for the filter-bar view toggles. The key is
+// suffixed with the user id (ui.view-toggles.<userId>) so a shared/central
+// Dolt server keeps each user's toggles separate rather than project-wide.
+const VIEW_TOGGLES_KEY_PREFIX = "ui.view-toggles";
 
 export abstract class BaseViewProvider implements vscode.WebviewViewProvider {
   protected _view?: vscode.WebviewView;
@@ -88,13 +94,11 @@ export abstract class BaseViewProvider implements vscode.WebviewViewProvider {
 
     // Send settings
     const config = vscode.workspace.getConfiguration("beads");
-    // User ID: prefer setting, fallback to $USER, then "unknown"
-    const userId = config.get<string>("userId", "") || process.env.USER || process.env.USERNAME || "unknown";
     this.postMessage({
       type: "setSettings",
       settings: {
         renderMarkdown: config.get<boolean>("renderMarkdown", true),
-        userId,
+        userId: this.getUserId(),
         tooltipHoverDelay: config.get<number>("tooltipHoverDelay", 1000),
       },
     });
@@ -106,8 +110,45 @@ export abstract class BaseViewProvider implements vscode.WebviewViewProvider {
       this.log.debug(`Failed to load team members: ${err}`);
     });
 
+    // Send this project's persisted filter-bar toggles (from the Dolt kv store)
+    await this.sendViewToggles();
+
     // Load view-specific data
     await this.loadData();
+  }
+
+  /**
+   * Current user id: prefer the `beads.userId` setting, then $USER, then
+   * "unknown". Used for the webview settings and the per-user view-toggles key.
+   */
+  protected getUserId(): string {
+    const config = vscode.workspace.getConfiguration("beads");
+    return config.get<string>("userId", "") || process.env.USER || process.env.USERNAME || "unknown";
+  }
+
+  /** Per-user kv key holding this user's filter-bar toggles for the project. */
+  private viewTogglesKey(): string {
+    return `${VIEW_TOGGLES_KEY_PREFIX}.${this.getUserId()}`;
+  }
+
+  /**
+   * Read this user's filter-bar toggles for the active project from the beads
+   * Dolt kv store and push them to the webview. Sends null (webview falls back
+   * to defaults = all off) when nothing is stored, no project is active, or bd
+   * errors.
+   */
+  protected async sendViewToggles(): Promise<void> {
+    let toggles: ViewToggles | null = null;
+    const client = this.projectManager.getClient();
+    if (client) {
+      try {
+        const raw = await client.kvGet(this.viewTogglesKey());
+        if (raw) { toggles = JSON.parse(raw) as ViewToggles; }
+      } catch (err) {
+        this.log.debug(`Failed to load view toggles: ${err}`);
+      }
+    }
+    this.postMessage({ type: "setViewToggles", toggles });
   }
 
   /**
@@ -156,6 +197,18 @@ export abstract class BaseViewProvider implements vscode.WebviewViewProvider {
       case "openFile":
         await this.handleOpenFile(message.filePath, message.line);
         break;
+
+      case "saveViewToggles": {
+        const client = this.projectManager.getClient();
+        if (client) {
+          try {
+            await client.kvSet(this.viewTogglesKey(), JSON.stringify(message.toggles));
+          } catch (err) {
+            this.log.debug(`Failed to save view toggles: ${err}`);
+          }
+        }
+        break;
+      }
 
       default:
         await this.handleCustomMessage(message);
@@ -258,6 +311,11 @@ export abstract class BaseViewProvider implements vscode.WebviewViewProvider {
       this.postMessage({ type: "setTeamMembers", members });
     }).catch((err) => {
       this.log.debug(`Failed to load team members: ${err}`);
+    });
+
+    // Re-send the (possibly different) project's persisted view toggles
+    this.sendViewToggles().catch((err) => {
+      this.log.debug(`Failed to send view toggles: ${err}`);
     });
 
     this.loadData().catch((err) => {
